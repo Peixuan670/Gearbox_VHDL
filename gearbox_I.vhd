@@ -261,8 +261,40 @@ begin
   -- [Function] dequeue process <deque_p>
   p_dequeue: process(rst, clk)
   begin
+  
+  -- [Peixuan TODO] Logic:
+
+  -- (1) Wait for deque signal
+
+  -- (2) deque_level = find_deque_level() -- find deque level by function find_deque_level()
+
+  -- (3) while deque_level == -1 (means all the levels are served in this round):
+    -- update vc until deque_level != -1 (find levels with bytes to serve)
+    -- send signal to find_update_vc process
+    -- get updated_vc: updated_vc = yield self.gb_update_VC_dat.get() from <find_earliest_non_empty_level_fifo_p>
+    -- update vc to updated_vc
+    -- get new deque_level: deque_level = find_deque_level()
+  
+  -- (4) now, deque_level is not -1, deque from deque_level
+    -- i) Find cur serving set A or set B: self.level_ping_pong_arr[deque_level_index]
+    -- ii) Find cur_fifo by vc: self.cur_fifo = math.floor(self.vc / self.granularity) % self.fifo_num
+    -- iii) Deque cur set(A or B) gearbox_level cur_fifo
+  
+  -- (5) Update served bytes of the dequed level
+    -- Served_bytes[level] = Served_bytes[level] + pkt_bytes
+  -- (6) Update pkt_cnt of gearbox scheduler
+    -- pkt_cnt = pkt_cnt - 1
+  
+  -- (6) Put dequed pkt to dout
+  
     
   end process p_dequeue;
+
+  -- [Function] find_deque_level
+    -- From level 0 to top_level:
+      -- if served byte < byte to serve
+        -- return current traversed level
+    -- return -1 if no level served byte < byte to serve (finished serving all levels)
   
 
   -- [Function] find_earliest_non_empty_level_fifo_p
@@ -271,6 +303,27 @@ begin
 
     -- 2. Get earliest non empty fifo from all the levels and sets (this should be better with VHDL parrell)
       -- Get max VC of earliest non empty fifo from all the levels and sets
-      -- Jump VC = min{ max VC of earliest non empty fifo from all the levels and sets }
+      -- updated_vc = min{ max VC of earliest non empty fifo from all the levels and sets }
+      -- return updated_vc
+  
+  -- [Function] update_vc(updated_vc)
+
+    -- 1. update is_serve_setA (ping-pong indicator)
+      -- is_serve_set_A in level <level_l> = floor( updated_vc / (level_l's granularity * level_l's fifo num)) % 2 == 0
+      -- if == 0, serve set A, else serve set B
+          -- serve_set_A = (math.floor(float(updated_vc) / (self.granularity_list[index] * self.fifo_num_list[index])) % 2 == 0)
+      -- self.level_ping_pong_arr[index] = serve_set_A
+    
+    -- 2. find current serving fifo of each level, we can also do this else where when we need to access cur fifo
+
+    -- 3. update top level deque bytes
+      -- Traverse all levels
+        -- i) find cur_fifo of this level
+        -- ii) find the byte cnt of this fifo
+        -- iii) deque_byte = ((level0's_granularity / this_level's_granularity) * ceil(cur_fifo_index/this_level's_fifo_num)) * byte_cnt_of_cur_fifo
+        -- iv) update deque_byte (byte to deque for this level in this round) to the array
+        -- v) reset dequed_byte (byte already dequed for this level in this round) to 0
+    
+    -- 4. send out updated_vc to outter module if necessary
 
 end gearbox_I_arch;
