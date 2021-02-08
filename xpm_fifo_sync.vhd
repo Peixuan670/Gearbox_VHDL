@@ -107,10 +107,10 @@ entity xpm_fifo_sync is
       wr_rst_busy   : out std_logic;     -- 1-bit output: Write Reset Busy: Active-High indicator that the FIFO
                                          -- write domain is currently in a reset state.
 
-      din           : out std_logic_vector(WRITE_DATA_WIDTH-1 downto 0); -- WRITE_DATA_WIDTH-bit input: Write Data: The input data bus used when
+      din           : in  std_logic_vector(WRITE_DATA_WIDTH-1 downto 0); -- WRITE_DATA_WIDTH-bit input: Write Data: The input data bus used when
                                          -- writing the FIFO.
 
-      injectdbiterr : in std_logic;      -- 1-bit input: Double Bit Error Injection: Injects a double bit error if
+      injectdbiterr : in  std_logic;      -- 1-bit input: Double Bit Error Injection: Injects a double bit error if
                                          -- the ECC feature is used on block RAMs or UltraRAM macros.
 
       injectsbiterr : in std_logic;      -- 1-bit input: Single Bit Error Injection: Injects a single bit error if
@@ -152,10 +152,12 @@ begin
       if rst = '1' then
         wr_data_count <= (others => '0');
         rd_data_count <= (others => '0');
-        r_WR_INDEX   <= 0;
-        r_RD_INDEX   <= 0;
+        r_WR_INDEX    <= 0;
+        r_RD_INDEX    <= 0;
+        data_valid    <= '0';
       else
- 
+        data_valid    <= '0';
+        
         -- Keeps track of the total number of words in the FIFO
         if (wr_en = '1' and rd_en = '0') then
           wr_data_count <= std_logic_vector(unsigned(wr_data_count) + 1);
@@ -179,6 +181,8 @@ begin
           else
             r_RD_INDEX <= r_RD_INDEX + 1;
           end if;
+          dout <= r_FIFO_DATA(r_RD_INDEX);
+          data_valid <= '1';
         end if;
  
         -- Registers the input data when there is a write
@@ -189,9 +193,7 @@ begin
       end if;                           -- sync reset
     end if;                             -- rising_edge(i_clk)
   end process p_CONTROL;
-   
-  dout <= r_FIFO_DATA(r_RD_INDEX);
- 
+    
   full  <= '1' when r_WR_INDEX = r_RD_INDEX-1 else '0';
   empty <= '1' when r_WR_INDEX = r_RD_INDEX   else '0';
     
@@ -213,4 +215,5 @@ begin
  
   -- synthesis translate_on
 end rtl;
+
 

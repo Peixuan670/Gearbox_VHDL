@@ -14,31 +14,29 @@ entity gearbox_level is
     g_L2_FIFO_NUM     : integer;     -- log2 of number of FIFOs
     g_FIFO_SIZE       : integer;     -- size (depth) of each FIFO
     g_DESC_BIT_WIDTH  : integer;     -- Descriptor width
-    g_VC_BIT_WIDTH    : integer;     -- number of bits in VC
-    g_L2_GRANULARITY  : integer;     -- log2 of granularity
     g_PKT_CNT_WIDTH   : integer;     -- packet count width
     g_BYTE_CNT_WIDTH  : integer      -- byte count width
   );
   port (
     rst                              : in  std_logic;
     clk                              : in  std_logic;
-    vc                               : in  unsigned(g_VC_BIT_WIDTH-1 downto 0);
     -- enq i/f
     enq_cmd                          : in  std_logic;
     enq_fifo_index                   : in  unsigned(g_L2_FIFO_NUM-1 downto 0);
-    enq_desc                         : in  std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
+    enq_desc                         : in  std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
+    enq_done                         : out std_logic;
+
     -- deq i/f
     deq_cmd                          : in  std_logic;
     deq_fifo_index                   : in  unsigned(g_L2_FIFO_NUM-1 downto 0);
-    deq_desc                         : out std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
+    deq_desc                         : out std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
     deq_desc_valid                   : out std_logic;
     -- find earliest fifo i/f
     find_earliest_non_empty_fifo_cmd : in  std_logic;
+    current_fifo_index               : in  unsigned(g_L2_FIFO_NUM-1 downto 0);
     find_earliest_non_empty_fifo_rsp : out std_logic;
     earliest_fifo_index              : out unsigned(g_L2_FIFO_NUM-1 downto 0);
     all_fifos_empty                  : out std_logic;
-    -- TODO: input or output?
-    current_fifo_index               : out unsigned(g_L2_FIFO_NUM-1 downto 0);
     -- fifo count i/f
     get_fifo_cnts_cmd                : in  std_logic;
     get_fifo_cnts_index              : in  unsigned(g_L2_FIFO_NUM-1 downto 0);
@@ -129,13 +127,13 @@ architecture gearbox_level_arch of gearbox_level is
       wr_ack        : out std_logic;     -- 1-bit output: Write Acknowledge: This signal indicates that a write
                                          -- request (wr_en) during the prior clock cycle is succeeded.
 
-      wr_data_count : out std_logic_vector(WR_DATA_COUNT_WIDTH-1 downto 0); -- WR_DATA_COUNT_WIDTH-bit output: Write Data Count: This bus indicates
+      wr_data_count : out std_logic_vector(WR_DATA_COUNT_WIDTH-1 downto 0); -- WR_DATA_COUNT_WIDTH-bit output: Write Data Count: This bus 
                                          -- the number of words written into the FIFO.
 
       wr_rst_busy   : out std_logic;     -- 1-bit output: Write Reset Busy: Active-High indicator that the FIFO
                                          -- write domain is currently in a reset state.
 
-      din           : out std_logic_vector(WRITE_DATA_WIDTH-1 downto 0); -- WRITE_DATA_WIDTH-bit input: Write Data: The input data bus used when
+      din           : in std_logic_vector(WRITE_DATA_WIDTH-1 downto 0); -- WRITE_DATA_WIDTH-bit input: Write Data: The input data bus used when
                                          -- writing the FIFO.
 
       injectdbiterr : in std_logic;      -- 1-bit input: Double Bit Error Injection: Injects a double bit error if
@@ -165,16 +163,16 @@ architecture gearbox_level_arch of gearbox_level is
   end component;
 
   signal data_valid        : std_logic_vector(g_FIFO_NUM-1 downto 0);
-  type   t_dout_array is array(0 to g_FIFO_NUM-1) of std_logic_vector(DESC_BIT_WIDTH-1 downto 0); 
+  type   t_dout_array is array(0 to g_FIFO_NUM-1) of std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0); 
   signal dout              : t_dout_array;
   signal empty             : std_logic_vector(g_FIFO_NUM-1 downto 0);     -- FIFO empty indicator arr
   signal full              : std_logic_vector(g_FIFO_NUM-1 downto 0);     -- FIFO full indicator arr
   signal rd_en             : std_logic_vector(g_FIFO_NUM-1 downto 0);
   signal wr_en             : std_logic_vector(g_FIFO_NUM-1 downto 0);
-  signal din               : std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
-  signal enq_done          : std_logic;
+  signal din               : std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
   signal deq_cmd_d1        : std_logic;
-  signal deq_fifo_index_d1 : unsigned(g_L2_FIFO_NUM-1 downto 0);
+  signal deq_fifo_index_d1 : unsigned(g_L2_FIFO_NUM-1 downto 0) := (others => '0');
+  signal deq_fifo_index_d2 : unsigned(g_L2_FIFO_NUM-1 downto 0) := (others => '0');
   type   t_pkt_cnt_array is array(0 to g_FIFO_NUM-1) of unsigned(g_PKT_CNT_WIDTH-1 downto 0);
   signal enq_fifo_pkt_cnt  : t_pkt_cnt_array;
   signal deq_fifo_pkt_cnt  : t_pkt_cnt_array;
@@ -204,16 +202,15 @@ begin
       PROG_EMPTY_THRESH   => 10,                   -- DECIMAL
       PROG_FULL_THRESH    => 10,                   -- DECIMAL
       RD_DATA_COUNT_WIDTH => g_FIFO_SIZE+1,        -- DECIMAL
-      READ_DATA_WIDTH     => DESC_BIT_WIDTH,       -- DECIMAL
+      READ_DATA_WIDTH     => g_DESC_BIT_WIDTH,     -- DECIMAL
       READ_MODE           => "std",                -- String
       SIM_ASSERT_CHK      => 0,                    -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
       USE_ADV_FEATURES    => "1404",               -- String
       WAKEUP_TIME         => 0,                    -- DECIMAL
-      WRITE_DATA_WIDTH    => DESC_BIT_WIDTH,       -- DECIMAL
+      WRITE_DATA_WIDTH    => g_DESC_BIT_WIDTH,     -- DECIMAL
       WR_DATA_COUNT_WIDTH => g_FIFO_SIZE+1         -- DECIMAL
     )
     port map (
-      -- [Peixuan TODO]: what's open? Is these for the FIFO module?
       almost_empty  => open,             -- 1-bit output: Almost Empty : When asserted, this signal indicates that
                                          -- only one more read can be performed before the FIFO goes to empty.
 
@@ -325,12 +322,12 @@ begin
         v_earliest_found_right := false;
         for i in 0 to g_FIFO_NUM-1 loop
           if i < to_integer(current_fifo_index) then
-            if empty(i) = '1' and not v_earliest_found_left then
+            if empty(i) = '0' and not v_earliest_found_left then
               v_earliest_fifo_index := i;
               v_earliest_found_left := true;
             end if;
           else
-            if empty(i) = '1' and not v_earliest_found_right then
+            if empty(i) = '0' and not v_earliest_found_right then
               v_earliest_fifo_index := i;
               v_earliest_found_right := true;
             end if;
@@ -367,7 +364,7 @@ begin
         wr_en(to_integer(enq_fifo_index)) <= '1';
         
         -- Update enq FIFO and level packet and byte counts
-        v_byte_cnt := unsigned(enq_desc(DESC_BIT_WIDTH - 1 downto DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
+        v_byte_cnt := resize(unsigned(enq_desc(g_DESC_BIT_WIDTH - 1 downto g_DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH)), v_byte_cnt'length);
         enq_fifo_pkt_cnt(to_integer(enq_fifo_index))  <= enq_fifo_pkt_cnt(to_integer(enq_fifo_index)) + 1;
         enq_fifo_byte_cnt(to_integer(enq_fifo_index)) <= enq_fifo_byte_cnt(to_integer(enq_fifo_index)) + v_byte_cnt;
         enq_level_pkt_cnt                             <= enq_level_pkt_cnt + 1;
@@ -389,26 +386,30 @@ begin
       deq_level_byte_cnt <= (others => '0');
     elsif clk'event and clk = '1' then
       rd_en <= (others => '0');
-      deq_cmd_d1 <= deq_cmd;
+      deq_cmd_d1 <= '0';
       
       if deq_cmd = '1' and empty(to_integer(deq_fifo_index)) /= '1' then
         rd_en(to_integer(deq_fifo_index)) <= '1';
         deq_fifo_index_d1 <= deq_fifo_index;
+        deq_cmd_d1 <= '1';
       end if;
       
-      deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d1))  <= deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d1)) + 1;
-      deq_fifo_byte_cnt(to_integer(deq_fifo_index_d1)) <= deq_fifo_byte_cnt(to_integer(deq_fifo_index_d1)) + 
+      deq_fifo_index_d2 <= deq_fifo_index_d1;
+      
+      if deq_desc_valid = '1' then
+        deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d2))  <= deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d2)) + 1;
+        deq_fifo_byte_cnt(to_integer(deq_fifo_index_d2)) <= deq_fifo_byte_cnt(to_integer(deq_fifo_index_d2)) + 
                                                           unsigned(deq_desc(DESC_BIT_WIDTH - 1 downto DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
-      deq_level_pkt_cnt                                <= deq_level_pkt_cnt + 1;
-      deq_level_byte_cnt                               <= deq_level_byte_cnt + 
+        deq_level_pkt_cnt                                <= deq_level_pkt_cnt + 1;
+        deq_level_byte_cnt                               <= deq_level_byte_cnt + 
                                                           unsigned(deq_desc(DESC_BIT_WIDTH - 1 downto DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
-
+      end if;
     end if;
   end process p_dequeue;
-  deq_desc <= dout(to_integer(deq_fifo_index_d1));
-  deq_desc_valid <= data_valid(to_integer(deq_fifo_index_d1));
+  deq_desc <= dout(to_integer(deq_fifo_index_d2));
+  deq_desc_valid <= data_valid(to_integer(deq_fifo_index_d2));
 
-  -- [Peixuan TODO]: we need a process to return pkt_cnt = enq_cnt - deq_cnt
+  -- counters process
   p_counters: process(rst, clk)
   begin
     if rst = '1' then
