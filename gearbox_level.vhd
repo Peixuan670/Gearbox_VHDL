@@ -191,7 +191,7 @@ begin
     -- xpm_fifo_sync: Synchronous FIFO
     -- Xilinx Parameterized Macro, version 2020.1
 
-    xpm_fifo_sync_inst : xpm_fifo_sync
+    i_xpm_fifo_sync : xpm_fifo_sync
     generic map (
       DOUT_RESET_VALUE    => "0",                  -- String
       ECC_MODE            => "no_ecc",             -- String
