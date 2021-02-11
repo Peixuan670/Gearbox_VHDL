@@ -10,18 +10,22 @@ use work.gb_package.all;
 entity gearbox_I is
   generic (
     g_FLOW_NUM        : integer;     -- number of flow
+    g_L2_FLOW_NUM     : integer;     -- log2 of number of flows
     g_LEVEL_NUM       : integer;     -- number of levels
     g_L2_LEVEL_NUM    : integer;     -- log2 of number of levels
     g_FIFO_NUM        : integer;     -- number of FIFOs
     g_L2_FIFO_NUM     : integer;     -- log2 of number of FIFOs
     g_FIFO_SIZE       : integer;     -- size (depth) of each FIFO
     g_DESC_BIT_WIDTH  : integer;     -- Descriptor width
-    g_VC_BIT_WIDTH    : integer      -- number of bits in VC
+    g_VC_BIT_WIDTH    : integer;     -- number of bits in VC
+    g_PKT_CNT_WIDTH   : integer;     -- packet count width
+    g_BYTE_CNT_WIDTH  : integer      -- byte count width
+
   );
   port (
     rst                              : in  std_logic;
     clk                              : in  std_logic;
-    vc                               : in  unsigned(g_VC_BIT_WIDTH-1 downto 0);
+    
     enq_cmd                          : in  std_logic;
     enq_desc                         : in  std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
     
@@ -32,17 +36,14 @@ entity gearbox_I is
     drop_cmd                         : out std_logic;
     drop_desc                        : out std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
 
-    pkt_cnt                          : out unsigned(g_L2_FIFO_NUM-1 downto 0) -- [Peixuan TODO] what should be the pkt_cnt's bit width?
+    gb_pkt_cnt                       : out unsigned(g_L2_LEVEL_NUM+g_L2_FIFO_NUM+g_BYTE_CNT_WIDTH-1 downto 0)
 
   );
 end gearbox_I;
 
 architecture gearbox_I_arch of gearbox_I is
 
-  -- <int> vc (cur vc of gearbox)
   -- <int> update_vc (vc to update)
-
-  -- <boolean arr> is_serve_setA[level_num] (ping-pong indicator)
   
   -- <int arr>  bytes_to_serve[level_num] (bytes to serve in this round)
   -- <int arr>  served_bytes[level_num] (bytes serced in this round)
@@ -64,12 +65,12 @@ component gearbox_level
     -- enq i/f
     enq_cmd                          : in  std_logic;
     enq_fifo_index                   : in  unsigned(g_L2_FIFO_NUM-1 downto 0);
-    enq_desc                         : in  std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
+    enq_desc                         : in  std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
     enq_done                         : out std_logic;
     -- deq i/f
     deq_cmd                          : in  std_logic;
     deq_fifo_index                   : in  unsigned(g_L2_FIFO_NUM-1 downto 0);
-    deq_desc                         : out std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
+    deq_desc                         : out std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
     deq_desc_valid                   : out std_logic;
     -- find earliest fifo i/f
     find_earliest_non_empty_fifo_cmd : in  std_logic;
@@ -92,22 +93,61 @@ end component;
 constant  GRANULARITY : integer := g_L2_FIFO_NUM;
 
 type t_fin_time_arr is array(0 to g_FLOW_NUM-1) of unsigned(g_VC_BIT_WIDTH-1 downto 0);
-fin_time_arr : t_fin_time_arr := (others => (others => '0'));
-type t_curr_fifo_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM-1 downto 0);
-curr_fifo_arr: t_curr_fifo_arr;
+signal fin_time_arr : t_fin_time_arr;
+type t_current_fifo_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal current_fifo_arr: t_current_fifo_arr;
+type t_last_enq_level_arr is array(0 to g_FLOW_NUM-1) of unsigned(g_L2_LEVEL_NUM-1 downto 0);
+signal last_enq_level_arr : t_last_enq_level_arr;
 
-signal enq_cmd_d1   : std_logic;
-signal enq_cmd_d2   : std_logic;
-signal enq_cmd_d3   : std_logic;
-signal lvl_enq_desc : std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
-signal lvl_enq_cmd_A: std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal lvl_enq_cmd_B: std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal pkt_time     : unsigned(PKT_TIME_BIT_WIDTH-1 downto 0):
-signal flow_id      : unsigned(FLOW_ID_BIT_WIDTH-1 downto 0);
-signal fin_time     : unsigned(PKT_TIME_BIT_WIDTH-1 downto 0);
-signal enq_level    : unsigned(g_L2_LEVEL_NUM-1 downto 0);
-signal fifo_offset  : unsigned(g_L2_FIFO_NUM-1 downto 0);
-signal vc           : unsigned(g_VC_BIT_WIDTH-1 downto 0);
+signal enq_cmd_d1          : std_logic;
+signal enq_cmd_d2          : std_logic;
+signal enq_cmd_d3          : std_logic;
+signal lvl_enq_cmd_A       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_enq_cmd_B       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_enq_fifo_index  : unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal lvl_enq_desc        : std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
+signal lvl_deq_cmd_A       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_deq_cmd_B       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_deq_fifo_index  : unsigned(g_L2_FIFO_NUM-1 downto 0);
+type   t_lvl_deq_fifo_index_arr is array(0 to g_LEVEL_NUM-1) of std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
+signal lvl_deq_desc_A      : t_lvl_deq_fifo_index_arr;
+signal lvl_deq_desc_B      : t_lvl_deq_fifo_index_arr;
+signal lvl_deq_desc_valid_A: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_deq_desc_valid_B: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal find_earliest_non_empty_fifo_cmd_A: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal find_earliest_non_empty_fifo_cmd_B: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal find_earliest_non_empty_fifo_rsp_A: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal find_earliest_non_empty_fifo_rsp_B: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+type   t_earliest_fifo_index_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal earliest_fifo_index_A             : t_earliest_fifo_index_arr;
+signal earliest_fifo_index_B             : t_earliest_fifo_index_arr;
+signal all_fifos_empty_A                 : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal all_fifos_empty_B                 : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal get_fifo_cnts_cmd_A               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal get_fifo_cnts_cmd_B               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal get_fifo_cnts_index               : unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal get_fifo_cnts_rsp_A               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal get_fifo_cnts_rsp_B               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+type   t_fifo_pkt_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_PKT_CNT_WIDTH-1 downto 0);
+signal fifo_pkt_cnt_A                    : t_fifo_pkt_cnt_arr;
+signal fifo_pkt_cnt_B                    : t_fifo_pkt_cnt_arr;
+type   t_fifo_byte_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_PKT_CNT_WIDTH-1 downto 0);
+signal fifo_byte_cnt_A                   : t_fifo_byte_cnt_arr;
+signal fifo_byte_cnt_B                   : t_fifo_byte_cnt_arr;
+type   t_level_pkt_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_PKT_CNT_WIDTH-1 downto 0);
+signal level_pkt_cnt_A                    : t_level_pkt_cnt_arr;
+signal level_pkt_cnt_B                    : t_level_pkt_cnt_arr;
+type   t_level_byte_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM+g_PKT_CNT_WIDTH-1 downto 0);
+signal level_byte_cnt_A                   : t_level_byte_cnt_arr;
+signal level_byte_cnt_B                   : t_level_byte_cnt_arr;
+
+signal pkt_time            : unsigned(FIN_TIME_BIT_WIDTH-1 downto 0);
+signal flow_id             : unsigned(g_L2_FLOW_NUM-1 downto 0);
+signal fin_time            : unsigned(FIN_TIME_BIT_WIDTH-1 downto 0);
+signal enq_level           : unsigned(g_L2_LEVEL_NUM-1 downto 0);
+signal fifo_offset         : unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal vc                  : unsigned(g_VC_BIT_WIDTH-1 downto 0);
+signal is_serve_A_arr      : std_logic_vector(g_FIFO_NUM-1 downto 0);
 
 begin
 
@@ -137,11 +177,11 @@ begin
       deq_desc                         => lvl_deq_desc_A(i),
       deq_desc_valid                   => lvl_deq_desc_valid_A(i),
       -- find earliest fifo i/f
-      find_earliest_non_empty_fifo_cmd => find_earliest_non_empty_fifo_cmd_a,
-      current_fifo_index               => current_fifo_index,
-      find_earliest_non_empty_fifo_rsp => find_earliest_non_empty_fifo_rsp_a,
-      earliest_fifo_index              => earliest_fifo_index_a,
-      all_fifos_empty                  => all_fifos_empty_a,
+      find_earliest_non_empty_fifo_cmd => find_earliest_non_empty_fifo_cmd_A(i),
+      current_fifo_index               => current_fifo_arr(i),
+      find_earliest_non_empty_fifo_rsp => find_earliest_non_empty_fifo_rsp_A(i),
+      earliest_fifo_index              => earliest_fifo_index_A(i),
+      all_fifos_empty                  => all_fifos_empty_A(i),
       -- fifo count i/f
       get_fifo_cnts_cmd                => get_fifo_cnts_cmd_A(i),
       get_fifo_cnts_index              => get_fifo_cnts_index,
@@ -181,7 +221,7 @@ begin
       deq_desc_valid                   => lvl_deq_desc_valid_B(i),
       -- find earliest fifo i/f
       find_earliest_non_empty_fifo_cmd => find_earliest_non_empty_fifo_cmd_B(i),
-      current_fifo_index               => current_fifo_index,
+      current_fifo_index               => current_fifo_arr(i),
       find_earliest_non_empty_fifo_rsp => find_earliest_non_empty_fifo_rsp_B(i),
       earliest_fifo_index              => earliest_fifo_index_B(i),
       all_fifos_empty                  => all_fifos_empty_B(i),
@@ -197,29 +237,31 @@ begin
     );
   end generate g_GENERATE_LEVELS_B;
 
-  -- [Function] Enqueue process <enque_p>
+  -- Enqueue process 
   p_enqueue: process(rst, clk)
   variable v_enq_level_found: boolean := false;
+  variable v_enq_level: unsigned(g_L2_LEVEL_NUM-1 downto 0) := (others => '0');
   begin
     if rst = '1' then
       drop_cmd   <= '0';
       enq_cmd_d1 <= '0';
       enq_cmd_d2 <= '0';
       enq_cmd_d3 <= '0';
-      lvl_enq_cmd_A <= (other => '0');
-      lvl_enq_cmd_B <= (other => '0');
+      lvl_enq_cmd_A <= (others => '0');
+      lvl_enq_cmd_B <= (others => '0');
       
     elsif clk'event and clk = '1' then
       -- defaults
+      drop_cmd   <= '0';
       enq_cmd_d1 <= '0';
       enq_cmd_d2 <= '0';
       enq_cmd_d3 <= '0';
-      lvl_enq_cmd_A <= (other => '0');
-      lvl_enq_cmd_B <= (other => '0');
+      lvl_enq_cmd_A <= (others => '0');
+      lvl_enq_cmd_B <= (others => '0');
       
       -- determine current FIFO per level based on virtual clock 
       for i in 0 to g_LEVEL_NUM - 1 loop
-        curr_fifo_arr(i) <= vc((i+1)*g_VC_BIT_WIDTH/GRANULARITY - 1 downto i*g_VC_BIT_WIDTH/GRANULARITY);
+        current_fifo_arr(i) <= vc((i+1)*g_VC_BIT_WIDTH/GRANULARITY - 1 downto i*g_VC_BIT_WIDTH/GRANULARITY);
       end loop;
 
       -- Clk 1: process enqueue command
@@ -231,7 +273,7 @@ begin
         pkt_time <= unsigned(enq_desc(g_DESC_BIT_WIDTH - PKT_LEN_BIT_WIDTH - 1 downto 
                                         g_DESC_BIT_WIDTH - PKT_LEN_BIT_WIDTH - FIN_TIME_BIT_WIDTH));
         flow_id  <= unsigned(enq_desc(g_DESC_BIT_WIDTH - PKT_LEN_BIT_WIDTH - FIN_TIME_BIT_WIDTH - 1 downto 
-                                        g_DESC_BIT_WIDTH - PKT_LEN_BIT_WIDTH - FIN_TIME_BIT_WIDTH - FLOW_ID_BIT_WIDTH);
+                                        g_DESC_BIT_WIDTH - PKT_LEN_BIT_WIDTH - FIN_TIME_BIT_WIDTH - g_L2_FLOW_NUM));
         enq_cmd_d1 <= '1';
       end if;
       
@@ -247,7 +289,8 @@ begin
         -- if incremental finish time greater than max level capacity, drop pkt (check MSB bits)
         if fin_time(FIN_TIME_BIT_WIDTH - 1 downto g_LEVEL_NUM*FIN_TIME_BIT_WIDTH/GRANULARITY) /= 0 then
           drop_cmd <= '1';
-      
+        end if;
+        
         -- determine enq level by examining slices of fin_time.  enq_level = highest non-zero slice
         for i in g_LEVEL_NUM downto 1 loop
           if fin_time(i*FIN_TIME_BIT_WIDTH/GRANULARITY - 1 downto (i-1)*FIN_TIME_BIT_WIDTH/GRANULARITY) /= 0 and 
@@ -269,18 +312,18 @@ begin
         -- update fin_time_arr entry for flow_id
         fin_time_arr(to_integer(flow_id)) <= vc + fin_time;
         
-        if enq_level > last_enq_level_arr(to_integer(to_integer(flow_id))) then
+        if enq_level > last_enq_level_arr(to_integer(flow_id)) then
           last_enq_level_arr(to_integer(flow_id)) <= enq_level;
-          v_enq_level := enq_level
+          v_enq_level := enq_level;
         else
-          v_enq_level := last_enq_level_arr(to_integer(to_integer(flow_id)));
+          v_enq_level := last_enq_level_arr(to_integer(flow_id));
         end if;
     
         -- Two cases: a) insert level = top level; b) insert level < top level
         -- a) insert top level
         -- Top level only have one set (set A)
         if v_enq_level = g_LEVEL_NUM - 1 then
-          lvl_enq_fifo_index             <= curr_fifo_arr(v_enq_level) + fifo_offset;
+          lvl_enq_fifo_index             <= current_fifo_arr(to_integer(v_enq_level)) + fifo_offset;
           lvl_enq_cmd_A(g_LEVEL_NUM - 1) <= '1';
         else
           -- b) insert level < top level
@@ -293,19 +336,19 @@ begin
           --   enque other set
           --   enque_fifo_index = curr_fifo + offset - fifo_num          
           if is_serve_A_arr(to_integer(v_enq_level)) then
-            if curr_fifo_arr(v_enq_level) + fifo_offset < g_FIFO_NUM then
-              lvl_enq_fifo_index             <= curr_fifo_arr(v_enq_level) + fifo_offset;
+            if current_fifo_arr(to_integer(v_enq_level)) + fifo_offset < g_FIFO_NUM then
+              lvl_enq_fifo_index             <= current_fifo_arr(to_integer(v_enq_level)) + fifo_offset;
               lvl_enq_cmd_A(g_LEVEL_NUM - 1) <= '1';
             else
-              lvl_enq_fifo_index             <= curr_fifo_arr(v_enq_level) + fifo_offset;
+              lvl_enq_fifo_index             <= current_fifo_arr(to_integer(v_enq_level)) + fifo_offset;
               lvl_enq_cmd_B(g_LEVEL_NUM - 1) <= '1';
             end if;
           else
-            if curr_fifo_arr(v_enq_level) + fifo_offset < g_FIFO_NUM then
-              lvl_enq_fifo_index             <= curr_fifo_arr(v_enq_level) + fifo_offset;
+            if current_fifo_arr(to_integer(v_enq_level)) + fifo_offset < g_FIFO_NUM then
+              lvl_enq_fifo_index             <= current_fifo_arr(to_integer(v_enq_level)) + fifo_offset;
               lvl_enq_cmd_B(g_LEVEL_NUM - 1) <= '1';
             else
-              lvl_enq_fifo_index             <= curr_fifo_arr(v_enq_level) + fifo_offset;
+              lvl_enq_fifo_index             <= current_fifo_arr(to_integer(v_enq_level)) + fifo_offset;
               lvl_enq_cmd_A(g_LEVEL_NUM - 1) <= '1';
             end if;
           end if;      
