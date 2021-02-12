@@ -411,6 +411,7 @@ begin
 
     -- 2. Get earliest non empty fifo from all the levels and sets (this should be better with VHDL parrell)
       -- Get max VC of earliest non empty fifo from all the levels and sets
+        -- * here max_vc = (floor(vc/granularity[level]) + 1 ) * granularity[level] - 1 (here we need - 1)
       -- updated_vc = min{ max VC of earliest non empty fifo from all the levels and sets }
       -- return updated_vc
   
@@ -428,7 +429,13 @@ begin
       -- Traverse all levels
         -- i) find cur_fifo of this level
         -- ii) find the byte cnt of this fifo
-        -- iii) deque_byte = ((level0's_granularity / this_level's_granularity) * ceil(cur_fifo_index/this_level's_fifo_num)) * byte_cnt_of_cur_fifo
+
+        -- iii) deque_byte = 1/(max_vc - vc) * byte_cnt_of_cur_fifo
+          -- @ vc, we need to serve 1/[vc, max_vc) of the current fifo size
+          -- That is 1/(max_vc - vc), but (max_vc - vc) might not be the log2
+            -- max_vc = (floor(vc/granularity[level]) + 1 ) * granularity[level]
+          -- We drop the least significant bits of (max_vc - vc) (e.g. if (max_vc - vc) = 33, then we take 32) 
+
         -- iv) update deque_byte (byte to deque for this level in this round) to the array
         -- v) reset dequed_byte (byte already dequed for this level in this round) to 0
     
