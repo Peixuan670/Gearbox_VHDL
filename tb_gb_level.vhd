@@ -53,7 +53,7 @@ end component;
 constant  g_FIFO_NUM                       : integer := 32;
 constant  g_L2_FIFO_NUM                    : integer := 5;
 constant  g_FIFO_SIZE                      : integer := 256;
-constant  g_DESC_BIT_WIDTH                 : integer := 11+16+16;
+constant  g_DESC_BIT_WIDTH                 : integer := 11+20+2+16;
 constant  g_PKT_CNT_WIDTH                  : integer := 9;
 constant  g_BYTE_CNT_WIDTH                 : integer := 11+9;
 
@@ -124,6 +124,7 @@ p_main: process
     enq_fifo_index                   <= to_unsigned(5, enq_fifo_index'length);
     enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
                                         std_logic_vector(to_unsigned(100, FIN_TIME_BIT_WIDTH)) &
+                                        std_logic_vector(to_unsigned(0, FLOW_ID_BIT_WIDTH))    &
                                         std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH));
     wait for CLK_PERIOD;
     enq_cmd                          <= '0';
@@ -176,6 +177,7 @@ p_main: process
     assert (deq_desc_valid = '1' and 
             deq_desc = std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
                        std_logic_vector(to_unsigned(100, FIN_TIME_BIT_WIDTH))   &
+                       std_logic_vector(to_unsigned(0, FLOW_ID_BIT_WIDTH)) &
                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)))
       report " deq_desc_valid = " &
              STD_LOGIC'IMAGE(deq_desc_valid) & 

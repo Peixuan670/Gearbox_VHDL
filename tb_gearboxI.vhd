@@ -42,18 +42,22 @@ component gearbox_I
   );
 end component;
 
-constant  g_FIFO_NUM                       : integer := 32;
-constant  g_L2_FIFO_NUM                    : integer := 5;
+
+constant  g_FLOW_NUM                       : integer := 4;     -- number of flow
+constant  g_L2_FLOW_NUM                    : integer := 2;     -- log2 of number of flows
+constant  g_FIFO_NUM                       : integer := 16;
+constant  g_L2_FIFO_NUM                    : integer := 4;
 constant  g_LEVEL_NUM                      : integer := 4;
 constant  g_L2_LEVEL_NUM                   : integer := 2;
 constant  g_FIFO_SIZE                      : integer := 256;
-constant  g_DESC_BIT_WIDTH                 : integer := 11+16+16;
+constant  g_DESC_BIT_WIDTH                 : integer := 11+20+2+16;
+constant  g_VC_BIT_WIDTH                   : integer := 20;
 constant  g_PKT_CNT_WIDTH                  : integer := 9;
 constant  g_BYTE_CNT_WIDTH                 : integer := 11+9;
 
 constant  MAX_SIM_TIME : time := 80 ns;
 constant  CLK_PERIOD   : time := 4 ns;
-
+constant  LOGIC_DELAY  : time := 100 ps;
 
 signal    rst                              : std_logic := '0';
 signal    clk                              : std_logic := '0';
@@ -73,6 +77,39 @@ signal    gb_pkt_cnt                       : unsigned(g_L2_LEVEL_NUM+g_L2_FIFO_N
 
 begin
 
+i_gb: gearbox_I
+  generic map(
+    g_FLOW_NUM        => g_FLOW_NUM,       -- number of flows
+    g_L2_FLOW_NUM     => g_L2_FLOW_NUM,    -- log2 of number of flows
+    g_LEVEL_NUM       => g_LEVEL_NUM,      -- number of levels
+    g_L2_LEVEL_NUM    => g_L2_LEVEL_NUM,   -- log2 of number of levels
+    g_FIFO_NUM        => g_FIFO_NUM,       -- number of FIFOs
+    g_L2_FIFO_NUM     => g_L2_FIFO_NUM,    -- log2 of number of FIFOs
+    g_FIFO_SIZE       => g_FIFO_SIZE,      -- size (depth) of each FIFO
+    g_DESC_BIT_WIDTH  => g_DESC_BIT_WIDTH, -- Descriptor width
+    g_VC_BIT_WIDTH    => g_VC_BIT_WIDTH,   -- number of bits in VC
+    g_PKT_CNT_WIDTH   => g_PKT_CNT_WIDTH,  -- packet count width
+    g_BYTE_CNT_WIDTH  => g_BYTE_CNT_WIDTH  -- byte count width
+  )
+  port map (
+    rst                              => rst,
+    clk                              => clk,
+    -- enq i/f
+    enq_cmd                          => enq_cmd,
+    enq_desc                         => enq_desc,
+--    enq_done                         => enq_done,
+    -- deq i/f
+    deq_cmd                          => deq_cmd,
+    deq_desc                         => deq_desc,
+    deq_desc_valid                   => deq_desc_valid,
+    -- drop i/f
+    drop_cmd                         => drop_cmd,
+    drop_desc                        => drop_desc,
+    -- pkt count i/f
+    gb_pkt_cnt                       => gb_pkt_cnt
+  );
+  
+
 p_clk: process
   begin
     while NOW < MAX_SIM_TIME loop
@@ -83,12 +120,16 @@ p_clk: process
 end process p_clk;
 
 p_main: process
+alias gb_lvl_enq_cmd_A is << signal i_gb.lvl_enq_cmd_A : std_logic_vector(g_LEVEL_NUM-1 downto 0) >> ;
+alias gb_lvl_enq_fifo_index is << signal i_gb.lvl_enq_fifo_index : unsigned(g_L2_FIFO_NUM-1 downto 0) >> ;
+
   begin
-    wait for 100 ps;
-    rst <= '1';
-    wait for CLK_PERIOD;
-    rst <= '0';
-    wait for CLK_PERIOD;
+
+    wait until rising_edge(clk);
+    rst <= '1' after LOGIC_DELAY;
+    wait until rising_edge(clk);
+    rst <= '0' after LOGIC_DELAY;
+    wait until rising_edge(clk);
 
     -- enque testing
 
@@ -101,15 +142,20 @@ p_main: process
       -- 1.6 check index
 
     -- 1. enqueue a desc into Gearbox with flow_id = 0
-    enq_cmd                          <= '1';
+    enq_cmd                          <= '1' after LOGIC_DELAY;
     enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
-                                        std_logic_vector(to_unsigned(100, FIN_TIME_BIT_WIDTH)) &
-                                        -- TODO: flow id = 0 &
-                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH));
+                                        std_logic_vector(to_unsigned(10, FIN_TIME_BIT_WIDTH))  &
+                                        std_logic_vector(to_unsigned(0, g_L2_FLOW_NUM))        &
+                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
                                         -- TODO: pkt transmission time = 5
-    wait for CLK_PERIOD;                -- TODO: how may clk cycles we need?
-    enq_cmd                          <= '0';
-    
+    wait until rising_edge(clk);                
+    enq_cmd                          <= '0' after LOGIC_DELAY;
+    wait until rising_edge(clk);                
+    wait until rising_edge(clk);                
+    wait until rising_edge(clk);
+    assert (gb_lvl_enq_cmd_A = "0001") report "gb_lvl_enq_cmd_A = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_A))) severity failure;
+    assert (to_integer(gb_lvl_enq_fifo_index) = 10) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
+
     -- @ clk 02:
     -- 1.1 check last pkt enque level
       -- Should be 0
@@ -133,7 +179,7 @@ p_main: process
     -- 1.5 check index
       -- Should be 5
 
-    assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
+    --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
     wait for CLK_PERIOD;
 
     
@@ -203,35 +249,6 @@ p_main: process
     wait;
 end process p_main;
     
-i_gb: gearbox
-  generic map(
-    g_FLOW_NUM        => g_FLOW_NUM,       -- number of flows
-    g_L2_FLOW_NUM     => g_L2_FLOW_NUM,    -- log2 of number of flows
-    g_LEVEL_NUM       => g_LEVEL_NUM,      -- number of levels
-    g_L2_LEVEL_NUM    => g_L2_LEVEL_NUM,   -- log2 of number of levels
-    g_FIFO_NUM        => g_FIFO_NUM,       -- number of FIFOs
-    g_L2_FIFO_NUM     => g_L2_FIFO_NUM,    -- log2 of number of FIFOs
-    g_FIFO_SIZE       => g_FIFO_SIZE,      -- size (depth) of each FIFO
-    g_DESC_BIT_WIDTH  => g_DESC_BIT_WIDTH, -- Descriptor width
-    g_VC_BIT_WIDTH    => g_VC_BIT_WIDTH,   -- number of bits in VC
-    g_PKT_CNT_WIDTH   => g_PKT_CNT_WIDTH,  -- packet count width
-    g_BYTE_CNT_WIDTH  => g_BYTE_CNT_WIDTH  -- byte count width
-  )
-  port map (
-    rst                              => rst,
-    clk                              => clk,
-    -- enq i/f
-    enq_cmd                          => enq_cmd,
-    enq_desc                         => enq_desc,
-    enq_done                         => enq_done,
-    -- deq i/f
-    deq_cmd                          => deq_cmd,
-    deq_desc                         => deq_desc,
-    deq_desc_valid                   => deq_desc_valid,
-    -- drop i/f
-    drop_cmd                         => drop_cmd,
-    drop_desc                        => drop_desc,
-    -- pkt count i/f
-    gb_pkt_cnt                       => gb_pkt_cnt
-  );
+ 
+
 end tb;
