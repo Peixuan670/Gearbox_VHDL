@@ -3,6 +3,7 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use ieee.std_logic_misc.all;
 use IEEE.math_real."ceil";
 use IEEE.math_real."log2";
 use work.gb_package.all;
@@ -42,13 +43,6 @@ entity gearbox_I is
 end gearbox_I;
 
 architecture gearbox_I_arch of gearbox_I is
-
-  -- <int> update_vc (vc to update)
-  
-  -- <int arr>  bytes_to_serve[level_num] (bytes to serve in this round)
-  -- <int arr>  served_bytes[level_num] (bytes serced in this round)
-
-  -- <int arr> prev_enq_level_lst[flow_num] (previous enqued level index)
 
 component gearbox_level
   generic (
@@ -90,8 +84,7 @@ component gearbox_level
   );
 end component;
 
---constant  GRANULARITY : integer := g_L2_FIFO_NUM;
-
+-- enqueue signals
 type t_fin_time_arr is array(0 to g_FLOW_NUM-1) of unsigned(g_VC_BIT_WIDTH-1 downto 0);
 signal fin_time_arr : t_fin_time_arr;
 type t_current_fifo_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM-1 downto 0);
@@ -103,31 +96,34 @@ signal enq_cmd_d1          : std_logic;
 signal enq_cmd_d2          : std_logic;
 signal enq_cmd_d3          : std_logic;
 signal lvl_enq_cmd_A       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal lvl_enq_cmd_B       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_enq_cmd_B       : std_logic_vector(g_LEVEL_NUM-2 downto 0);
 signal lvl_enq_fifo_index  : unsigned(g_L2_FIFO_NUM-1 downto 0);
 signal lvl_enq_desc        : std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
 signal lvl_deq_cmd_A       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal lvl_deq_cmd_B       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_deq_cmd_B       : std_logic_vector(g_LEVEL_NUM-2 downto 0);
 signal lvl_deq_fifo_index  : unsigned(g_L2_FIFO_NUM-1 downto 0);
 type   t_lvl_deq_fifo_index_arr is array(0 to g_LEVEL_NUM-1) of std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
 signal lvl_deq_desc_A      : t_lvl_deq_fifo_index_arr;
 signal lvl_deq_desc_B      : t_lvl_deq_fifo_index_arr;
 signal lvl_deq_desc_valid_A: std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal lvl_deq_desc_valid_B: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal lvl_deq_desc_valid_B: std_logic_vector(g_LEVEL_NUM-2 downto 0);
 signal find_earliest_non_empty_fifo_cmd_A: std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal find_earliest_non_empty_fifo_cmd_B: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal find_earliest_non_empty_fifo_cmd_B: std_logic_vector(g_LEVEL_NUM-2 downto 0);
 signal find_earliest_non_empty_fifo_rsp_A: std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal find_earliest_non_empty_fifo_rsp_B: std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal find_earliest_non_empty_fifo_rsp_B: std_logic_vector(g_LEVEL_NUM-2 downto 0);
 type   t_earliest_fifo_index_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM-1 downto 0);
 signal earliest_fifo_index_A             : t_earliest_fifo_index_arr;
 signal earliest_fifo_index_B             : t_earliest_fifo_index_arr;
 signal all_fifos_empty_A                 : std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal all_fifos_empty_B                 : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal all_fifos_empty_B                 : std_logic_vector(g_LEVEL_NUM-2 downto 0);
 signal get_fifo_cnts_cmd_A               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal get_fifo_cnts_cmd_B               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal get_fifo_cnts_index               : unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal get_fifo_cnts_cmd_B               : std_logic_vector(g_LEVEL_NUM-2 downto 0);
+type   t_get_fifo_cnts_index_A is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal get_fifo_cnts_index_A             : t_get_fifo_cnts_index_A;
+type   t_get_fifo_cnts_index_B is array(0 to g_LEVEL_NUM-2) of unsigned(g_L2_FIFO_NUM-1 downto 0);
+signal get_fifo_cnts_index_B             : t_get_fifo_cnts_index_B;
 signal get_fifo_cnts_rsp_A               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
-signal get_fifo_cnts_rsp_B               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+signal get_fifo_cnts_rsp_B               : std_logic_vector(g_LEVEL_NUM-2 downto 0);
 type   t_fifo_pkt_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_PKT_CNT_WIDTH-1 downto 0);
 signal fifo_pkt_cnt_A                    : t_fifo_pkt_cnt_arr;
 signal fifo_pkt_cnt_B                    : t_fifo_pkt_cnt_arr;
@@ -145,8 +141,14 @@ signal flow_id             : unsigned(g_L2_FLOW_NUM-1 downto 0);
 signal fin_time            : unsigned(FIN_TIME_BIT_WIDTH-1 downto 0);
 signal enq_level           : unsigned(g_L2_LEVEL_NUM-1 downto 0);
 signal fifo_offset         : unsigned(g_L2_FIFO_NUM-1 downto 0);
+
+-- dequeue signals
 signal vc                  : unsigned(g_VC_BIT_WIDTH-1 downto 0);
 signal is_serve_A_arr      : std_logic_vector(g_LEVEL_NUM-1 downto 0);
+type t_deq_state is (IDLE, WAIT_1ST_NON_EMPTY, WAIT_FIFO_CNTS, SERVE_BYTES);
+signal deq_state           : t_deq_state;
+signal got_fifo_cnts_A     : std_logic;
+signal got_fifo_cnts_B     : std_logic;
 
 begin
 
@@ -183,7 +185,7 @@ begin
       all_fifos_empty                  => all_fifos_empty_A(i),
       -- fifo count i/f
       get_fifo_cnts_cmd                => get_fifo_cnts_cmd_A(i),
-      get_fifo_cnts_index              => get_fifo_cnts_index,
+      get_fifo_cnts_index              => get_fifo_cnts_index_A(i),
       get_fifo_cnts_rsp                => get_fifo_cnts_rsp_A(i),
       fifo_pkt_cnt                     => fifo_pkt_cnt_A(i),
       fifo_byte_cnt                    => fifo_byte_cnt_A(i),
@@ -226,7 +228,7 @@ begin
       all_fifos_empty                  => all_fifos_empty_B(i),
       -- fifo count i/f
       get_fifo_cnts_cmd                => get_fifo_cnts_cmd_B(i),
-      get_fifo_cnts_index              => get_fifo_cnts_index,
+      get_fifo_cnts_index              => get_fifo_cnts_index_B(i),
       get_fifo_cnts_rsp                => get_fifo_cnts_rsp_B(i),
       fifo_pkt_cnt                     => fifo_pkt_cnt_B(i),
       fifo_byte_cnt                    => fifo_byte_cnt_B(i),
@@ -364,15 +366,100 @@ begin
     if rst = '1' then
       vc             <= (others => '0');
       is_serve_A_arr <= (others => '1');
-
+      deq_state      <= IDLE;
+      
     elsif clk'event and clk = '1' then
     
+      case deq_state is
+        when IDLE =>
+          -- wait for dequeue signal
+          if deq_cmd = '1' then
+            for i in 0 to g_LEVEL_NUM-1 loop
+              if is_serve_A_arr(i) = '1' then
+                find_earliest_non_empty_fifo_cmd_A(i) <= '1';
+              else
+                find_earliest_non_empty_fifo_cmd_B(i) <= '1';
+              end if;
+            end loop;
+            deq_state <= WAIT_1ST_NON_EMPTY;
+          end if;
+          
+        when WAIT_1ST_NON_EMPTY => 
+          for i in 0 to g_LEVEL_NUM-1 loop
+            if find_earliest_non_empty_fifo_rsp_A(i) = '1' and all_fifos_empty_A(i) = '0' then
+              get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
+              get_fifo_cnts_cmd_A(i)   <= '1';
+              if all_fifos_empty_A(i) = '0' then
+                vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
+              end if;
+              deq_state <= WAIT_FIFO_CNTS;
+            end if;
+            if find_earliest_non_empty_fifo_rsp_B(i) = '1' and all_fifos_empty_B(i) = '0' then
+              get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
+              get_fifo_cnts_cmd_B(i)   <= '1';
+              if all_fifo_empty_B(i) = '0' then
+                vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
+              end if;
+              deq_state <= WAIT_FIFO_CNTS;
+            end if;
+          end loop;
+        
+        when WAIT_FIFO_CNTS =>
+          for i in 0 to g_LEVEL_NUM-1 loop
+            if get_fifo_cnts_rsp_A(i) = '1' then
+              bytes_to_serve(i) <= fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*(g_FIFO_NUM));
+              got_fifo_cnts_A := true;
+            end if;
+            if get_fifo_cnts_rsp_B(i) = '1' then
+              bytes_to_serve(i) <= fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*(g_FIFO_NUM));
+              got_fifo_cnts_B := true;
+            end if;
+          end loop;
+          if (got_fifo_cnts_A or got_fifo_cnts_B) then
+            deq_state <= SERVE_BYTES;
+            got_fifo_cnts_A := false;
+            got_fifo_cnts_B := false;
+          end if;
+          
+        when SERVE_BYTES =>
+          v_not_served := (others => true);
+          for i in 0 to g_LEVEL_NUM-1 loop
+            if bytes_served(i) < bytes_to_serve(i) and and_reduce(v_not_served(i downto 0)) then
+              if is_serve_A_arr(i) = '1' then
+                deq_cmd_A(i) <= '1';
+              else
+                deq_cmd_B(i) <= '1';
+              end if;
+              deq_fifo_index <= to_unsigned(i, deq_fifo_index'length);
+              deq_state <= WAIT_DEQ_VLD;
+              v_not_served(i) := false;
+              deqd_level <= i;
+            end if;
+          end loop;
+          if and_reduce(v_not_served) then
+            deq_state <= IDLE;
+          end if;
+          
+        when WAIT_DEQ_VLD =>
+          if deq_desc_valid_A(deqd_level) = '1' then
+            v_deqd_bytes := deq_desc_A(deqd_level)(g_DESC_BIT_WIDTH-1 downto g_DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH);        
+            bytes_served(deqd_level) <= byte_served(deqd_level) + v_deqd_bytes;
+            deq_desc <= deq_desc_A(deqd_level);
+            deq_desc_valid <= '1';
+            gb_pkt_count <= gb_pkt_count + 1;
+            deq_state <= SERVE_BYTES;
+          end if;
+          if deq_desc_valid_B(deqd_level) = '1' then
+            v_deqd_bytes := deq_desc_B(deqd_level)(g_DESC_BIT_WIDTH-1 downto g_DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH);        
+            bytes_served(deqd_level) <= byte_served(deqd_level) + v_deqd_bytes;
+            deq_desc <= deq_desc_B(deqd_level)
+            deq_desc_valid <= '1';
+            gb_pkt_count <= gb_pkt_count + 1;
+            deq_state <= SERVE_BYTES;
+          end if;
+                        
+      end case;
     end if;
-    deq_desc <= (others => '0');
-    deq_desc_valid <= '0';
-  -- [Peixuan TODO] Logic:
-
-  -- (1) Wait for deque signal
 
   -- (2) deque_level = find_deque_level() -- find deque level by function find_deque_level()
 
