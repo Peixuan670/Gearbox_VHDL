@@ -167,6 +167,33 @@ p_main: process
              " fifo_byte_cnt = " & INTEGER'IMAGE(to_integer(fifo_byte_cnt)) 
       severity failure;
     wait for CLK_PERIOD;
+
+    -- enqueue a desc into FIFO index 3
+    enq_cmd                          <= '1';
+    enq_fifo_index                   <= to_unsigned(3, enq_fifo_index'length);
+    enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
+                                        std_logic_vector(to_unsigned(100, FIN_TIME_BIT_WIDTH)) &
+                                        std_logic_vector(to_unsigned(0, FLOW_ID_BIT_WIDTH))    &
+                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH));
+    wait for CLK_PERIOD;
+    enq_cmd                          <= '0';
+    assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
+    wait for CLK_PERIOD;
+
+    -- issue find earliest FIFO again - expect FIFO index 3
+    find_earliest_non_empty_fifo_cmd <= '1';
+    current_fifo_index               <= to_unsigned(1, current_fifo_index'length);
+    wait for CLK_PERIOD;
+    find_earliest_non_empty_fifo_cmd <= '0';
+    assert (find_earliest_non_empty_fifo_rsp = '1' and 
+            earliest_fifo_index = to_unsigned(3, earliest_fifo_index'length) and
+            all_fifos_empty = '0') 
+      report "find_earliest_non_empty_fifo_rsp = " &
+             STD_LOGIC'IMAGE(find_earliest_non_empty_fifo_rsp) & 
+             " earliest_fifo_index = " & INTEGER'IMAGE(to_integer(earliest_fifo_index)) &
+             " all_fifos_empty = " & STD_LOGIC'IMAGE(all_fifos_empty) 
+        severity failure;
+    wait for CLK_PERIOD;
     
     -- dequeue descriptor from FIFO 5
     deq_cmd                          <= '1';
