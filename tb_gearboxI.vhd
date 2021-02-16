@@ -121,7 +121,7 @@ end process p_clk;
 
 p_main: process
 alias gb_lvl_enq_cmd_A is << signal i_gb.lvl_enq_cmd_A : std_logic_vector(g_LEVEL_NUM-1 downto 0) >> ;     -- enq level index set A
-alias gb_lvl_enq_cmd_B is << signal i_gb.lvl_enq_cmd_B : std_logic_vector(g_LEVEL_NUM-1 downto 0) >> ;     -- enq level index set B
+alias gb_lvl_enq_cmd_B is << signal i_gb.lvl_enq_cmd_B : std_logic_vector(g_LEVEL_NUM-2 downto 0) >> ;     -- enq level index set B
 alias gb_lvl_enq_fifo_index is << signal i_gb.lvl_enq_fifo_index : unsigned(g_L2_FIFO_NUM-1 downto 0) >> ; -- enq fifo index
 --alias gb_last_enq_level_arr is << signal i_gb.last_enq_level_arr: t_last_enq_level_arr >> ; --[TODO] how to init, need import type?  -- last enque level array
 --alias gb_fin_time_arr is << signal i_gb.fin_time_arr : t_fin_time_arr; >> ; --[TODO] how to init, need import type?  -- last fin_time array
@@ -176,13 +176,13 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Check enque set
     -- Enque set A
     assert (gb_lvl_enq_cmd_A = "0001") report "gb_lvl_enq_cmd_A = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_A))) severity failure;
-    assert (gb_lvl_enq_cmd_B = "0000") report "gb_lvl_enq_cmd_B = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_B))) severity failure;
+    assert (gb_lvl_enq_cmd_B = "000") report "gb_lvl_enq_cmd_B = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_B))) severity failure;
     -- Check enque fifo index
     -- Enque fifo 5
     assert (to_integer(gb_lvl_enq_fifo_index) = 5) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait for CLK_PERIOD;
+    wait until rising_edge(clk);
 
     
 
