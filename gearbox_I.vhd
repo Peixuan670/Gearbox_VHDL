@@ -397,11 +397,8 @@ begin
           -- wait for dequeue signal
           if deq_cmd = '1' then
             for i in 0 to g_LEVEL_NUM-1 loop
-              if is_serve_A_arr(i) = '1' then
                 find_earliest_non_empty_fifo_cmd_A(i) <= '1';
-              else
                 find_earliest_non_empty_fifo_cmd_B(i) <= '1';
-              end if;
             end loop;
             l_deq_cmd <= '1';
             deq_state <= WAIT_1ST_NON_EMPTY;
@@ -409,23 +406,55 @@ begin
           
         when WAIT_1ST_NON_EMPTY => 
           for i in 0 to g_LEVEL_NUM-1 loop
-           -- find dequeue level
-           if find_earliest_non_empty_fifo_rsp_A(i) = '1' and all_fifos_empty_A(i) = '0' then
-              get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
-              get_fifo_cnts_cmd_A(i)   <= '1';
-              -- update VC slice corresponding to level
-              vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
-              deq_state <= WAIT_FIFO_CNTS;
-            end if;
-            if find_earliest_non_empty_fifo_rsp_B(i) = '1' and all_fifos_empty_B(i) = '0' then
-              get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
-              get_fifo_cnts_cmd_B(i)   <= '1';
-              -- update VC slice corresponding to level
-              vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
-              deq_state <= WAIT_FIFO_CNTS;
+            -- find dequeue level
+            -- find_earliest_non_empty_fifo_rsp_A and _B arrive simultaneously.  We only check _A
+            if find_earliest_non_empty_fifo_rsp_A(i) = '1' then
+              if is_serve_A_arr(i) = '1' then 
+                 if all_fifos_empty_A(i) = '0' then
+                   get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
+                   get_fifo_cnts_cmd_A(i)   <= '1';
+                   -- update VC slice corresponding to level
+                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
+                   if i < g_LEVEL_NUM - 1 then
+                     is_serve_A_arr(i) <= not earliest_fifo_index_A(i+1)(0);
+                   end if; 
+                 elsif all_fifos_empty_B(i) = '0' then
+                   get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
+                   get_fifo_cnts_cmd_B(i)   <= '1';
+                   -- update VC slice corresponding to level
+                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
+                   if i < g_LEVEL_NUM - 1 then
+                     is_serve_A_arr(i) <= not earliest_fifo_index_B(i+1)(0);
+                   end if; 
+                 end if;
+              else
+                 if all_fifos_empty_B(i) = '0' then
+                   get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
+                   get_fifo_cnts_cmd_B(i)   <= '1';
+                   -- update VC slice corresponding to level
+                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
+                   if i < g_LEVEL_NUM - 1 then
+                     is_serve_A_arr(i) <= not earliest_fifo_index_B(i+1)(0);
+                   end if; 
+                 elsif all_fifos_empty_A(i) = '0' then
+                   get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
+                   get_fifo_cnts_cmd_B(i)   <= '1';
+                   -- update VC slice corresponding to level
+                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
+                   if i < g_LEVEL_NUM - 1 then
+                     is_serve_A_arr(i) <= not earliest_fifo_index_A(i+1)(0);
+                   end if; 
+                 end if;
+              end if;
             end if;
           end loop;
-        
+          if and_reduce(all_fifos_empty_A) = '0' or and_reduce(all_fifos_empty_B) =  '0' then
+            deq_state <= WAIT_FIFO_CNTS;
+          else
+            -- !!! output deq_empty?
+            deq_state <= IDLE;
+          end if;
+          
         when WAIT_FIFO_CNTS =>
           for i in 0 to g_LEVEL_NUM-1 loop
             if get_fifo_cnts_rsp_A(i) = '1' then
@@ -496,7 +525,6 @@ begin
           end if;
       end case;
     end if;
-
 
   
   -- (4) now, deque_level is not -1, deque from deque_level

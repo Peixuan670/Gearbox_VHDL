@@ -209,8 +209,8 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     assert (drop_cmd = '0') report "drop_cmd = " & STD_LOGIC'IMAGE(drop_cmd) severity failure;  
     
     -- Check enque level
-    -- Enque level = 0
-    assert (to_integer(gb_enq_level) = 0) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
+    -- Enque level = 1
+    assert (to_integer(gb_enq_level) = 1) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
                     
     wait until rising_edge(clk);
     -- @ (after) clk 03:
@@ -220,7 +220,7 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Check enque set
     -- Enque set A
     assert (gb_lvl_enq_cmd_A = "0010") report "gb_lvl_enq_cmd_A = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_A))) severity failure;
-    assert (gb_lvl_enq_cmd_B = "0000") report "gb_lvl_enq_cmd_B = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_B))) severity failure;
+    assert (gb_lvl_enq_cmd_B = "000") report "gb_lvl_enq_cmd_B = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_B))) severity failure;
     -- Check enque fifo index
     -- Enque fifo 1
     assert (to_integer(gb_lvl_enq_fifo_index) = 1) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
