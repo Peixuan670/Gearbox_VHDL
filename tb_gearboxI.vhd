@@ -191,7 +191,7 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
                                         std_logic_vector(to_unsigned(12, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 12
                                         std_logic_vector(to_unsigned(0, g_L2_FLOW_NUM))        &  -- TODO: flow id = 0
-                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
+                                        std_logic_vector(to_unsigned(2, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
     wait until rising_edge(clk);                
     enq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
@@ -227,43 +227,76 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
 
-    wait for CLK_PERIOD;
-
-    -- 2.1 check last pkt enque level
-      -- Should be 0
-     
-    -- 2.2 check last pkt fin time
-      -- Should be 5
-     
-    -- 2.3 check fin_time
-      -- Should be 15
-     
-    -- 2.4 check level
-      -- Should be 1
- 
-    -- 2.5 check index
-      -- Should be 1
+    wait until rising_edge(clk);
     
 
     -- 3. enqueue a desc into Gearbox with flow_id = 1
-    
-                                        -- TODO: flow id = 1
-                                        -- TODO: pkt transmission time = 6
-    
-    -- 3.1 check last pkt enque level
-      -- Should be 0
-    
-    -- 3.2 check last pkt fin time
-      -- Should be 0
-    
-    -- 3.3 check fin_time
-      -- Should be 6
-    
-    -- 3.4 check level
-      -- Should be 0
+    enq_cmd                          <= '1' after LOGIC_DELAY;
+    enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
+                                        std_logic_vector(to_unsigned(6, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 6
+                                        std_logic_vector(to_unsigned(1, g_L2_FLOW_NUM))        &  -- TODO: flow id = 1
+                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
+    wait until rising_edge(clk);                
+    enq_cmd                          <= '0' after LOGIC_DELAY;
+    wait until rising_edge(clk);
 
-    -- 3.5 check index
-      -- Should be 6
+    -- @ (after) clk 01:
+    -- Check fin_time:
+    -- Fin time = 6
+    assert (to_integer(gb_fin_time) = 6) report "gb_fin_time = " & INTEGER'IMAGE(to_integer(gb_fin_time)) severity failure;                
+
+    wait until rising_edge(clk);
+    -- @ (after) clk 02:
+    -- Check last fin time [ToDo]
+    -- Check last enq level [ToDo]
+    -- Check drop_cmd:
+    -- Drop cmd = false (0)
+    assert (drop_cmd = '0') report "drop_cmd = " & STD_LOGIC'IMAGE(drop_cmd) severity failure;  
+    
+    -- Check enque level
+    -- Enque level = 0
+    assert (to_integer(gb_enq_level) = 0) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
+                    
+    wait until rising_edge(clk);
+
+    -- @ (after) clk 03:
+    -- Check final enque level (v_enq_level)
+    -- Final enque level = 1
+    --assert (to_integer(gb_v_enq_level) = 1) report "gb_v_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_v_enq_level))) severity failure;
+    -- Check enque set
+    -- Enque set A
+    assert (gb_lvl_enq_cmd_A = "0001") report "gb_lvl_enq_cmd_A = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_A))) severity failure;
+    assert (gb_lvl_enq_cmd_B = "000") report "gb_lvl_enq_cmd_B = " & INTEGER'IMAGE(to_integer(unsigned(gb_lvl_enq_cmd_B))) severity failure;
+    -- Check enque fifo index
+    -- Enque fifo 1
+    assert (to_integer(gb_lvl_enq_fifo_index) = 6) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
+
+    --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
+
+    wait until rising_edge(clk);
+
+    -- 4. enqueue a desc into Gearbox with flow_id = 2
+    enq_cmd                          <= '1' after LOGIC_DELAY;
+    enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
+                                        std_logic_vector(to_unsigned(99999, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 9999
+                                        std_logic_vector(to_unsigned(2, g_L2_FLOW_NUM))        &  -- TODO: flow id = 2
+                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
+    wait until rising_edge(clk);                
+    enq_cmd                          <= '0' after LOGIC_DELAY;
+    wait until rising_edge(clk);
+
+    -- @ (after) clk 01:
+    -- Check fin_time:
+    -- Fin time = 9999
+    assert (to_integer(gb_fin_time) = 99999) report "gb_fin_time = " & INTEGER'IMAGE(to_integer(gb_fin_time)) severity failure;                
+
+    wait until rising_edge(clk);
+    -- @ (after) clk 02:
+    -- Check last fin time [ToDo]
+    -- Check last enq level [ToDo]
+    -- Check drop_cmd:
+    -- Drop cmd = false (0)
+    assert (drop_cmd = '1') report "drop_cmd = " & STD_LOGIC'IMAGE(drop_cmd) severity failure;
 
 
     -- 4. enqueue a subsequent desc into Gearbox with flow_id = 0
