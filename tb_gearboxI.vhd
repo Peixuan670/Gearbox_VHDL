@@ -55,7 +55,7 @@ constant  g_VC_BIT_WIDTH                   : integer := 20;
 constant  g_PKT_CNT_WIDTH                  : integer := 9;
 constant  g_BYTE_CNT_WIDTH                 : integer := 11+9;
 
-constant  MAX_SIM_TIME : time := 80 ns;
+constant  MAX_SIM_TIME : time := 180 ns;
 constant  CLK_PERIOD   : time := 4 ns;
 constant  LOGIC_DELAY  : time := 100 ps;
 
@@ -317,6 +317,12 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
  
     -- 4.5 check index
       -- Should be 1
+    wait until rising_edge(clk);
+
+    deq_cmd                          <= '1' after LOGIC_DELAY;
+    wait until rising_edge(clk);                
+    deq_cmd                          <= '0' after LOGIC_DELAY;
+    wait until rising_edge(clk);
 
     
     wait;

@@ -398,7 +398,9 @@ begin
           if deq_cmd = '1' then
             for i in 0 to g_LEVEL_NUM-1 loop
                 find_earliest_non_empty_fifo_cmd_A(i) <= '1';
-                find_earliest_non_empty_fifo_cmd_B(i) <= '1';
+                if i < g_LEVEL_NUM-1 then
+                  find_earliest_non_empty_fifo_cmd_B(i) <= '1';
+                end if;
             end loop;
             l_deq_cmd <= '1';
             deq_state <= WAIT_1ST_NON_EMPTY;
