@@ -118,10 +118,10 @@ signal enq_level           : unsigned(g_L2_LEVEL_NUM-1 downto 0);
 signal fifo_offset         : unsigned(g_L2_FIFO_NUM-1 downto 0);
 
 -- dequeue signals
-signal vc                  : unsigned(g_VC_BIT_WIDTH-1 downto 0);
-signal is_serve_A_arr      : std_logic_vector(g_LEVEL_NUM-1 downto 0);
 type t_deq_state is (IDLE, WAIT_1ST_NON_EMPTY, WAIT_FIFO_CNTS, SERVE_BYTES, WAIT_DEQ_VLD);
 signal deq_state           : t_deq_state;
+signal vc                  : unsigned(g_VC_BIT_WIDTH-1 downto 0);
+signal is_serve_A_arr      : std_logic_vector(g_LEVEL_NUM-1 downto 0);
 signal lvl_deq_cmd_A       : std_logic_vector(g_LEVEL_NUM-1 downto 0);
 signal lvl_deq_cmd_B       : std_logic_vector(g_LEVEL_NUM-2 downto 0);
 signal lvl_deq_fifo_index  : unsigned(g_L2_FIFO_NUM-1 downto 0);
@@ -371,6 +371,7 @@ begin
   variable v_not_served: std_logic_vector(g_LEVEL_NUM-1 downto 0) := (others => '1');
   variable v_deqd_bytes: unsigned(PKT_LEN_BIT_WIDTH-1 downto 0) := (others => '0');
   variable v_more_bytes_to_serve: boolean := false;
+  variable v_vc_updated: boolean := false;
   begin
     if rst = '1' then
       vc             <= (others => '0');
@@ -381,17 +382,25 @@ begin
       l_deq_cmd      <= '0';
       lvl_deq_cmd_A  <= (others => '0');
       lvl_deq_cmd_B  <= (others => '0');
+      get_fifo_cnts_cmd_A <= (others => '0');
+      get_fifo_cnts_cmd_B <= (others => '0');
       bytes_to_serve <= (others => (others => '0'));
       bytes_served   <= (others => (others => '0'));
       v_not_served   := (others => '1');
       gb_deq_pkt_cnt <= (others => '0');
       v_more_bytes_to_serve := false;
+      v_vc_updated   := false;
+      deq_desc_valid <= '0';
       
     elsif clk'event and clk = '1' then
       find_earliest_non_empty_fifo_cmd_A <= (others => '0');
       find_earliest_non_empty_fifo_cmd_B <= (others => '0');
       lvl_deq_cmd_A <= (others => '0');
       lvl_deq_cmd_B <= (others => '0');
+      get_fifo_cnts_cmd_A <= (others => '0');
+      get_fifo_cnts_cmd_B <= (others => '0');
+      deq_desc_valid <= '0';
+
       case deq_state is
         when IDLE =>
           -- wait for dequeue signal
@@ -407,6 +416,7 @@ begin
           end if;
           
         when WAIT_1ST_NON_EMPTY => 
+          v_vc_updated := false;
           for i in 0 to g_LEVEL_NUM-1 loop
             -- find dequeue level
             -- find_earliest_non_empty_fifo_rsp_A and _B arrive simultaneously.  We only check _A
@@ -416,56 +426,74 @@ begin
                    get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
                    get_fifo_cnts_cmd_A(i)   <= '1';
                    -- update VC slice corresponding to level
-                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
-                   if i < g_LEVEL_NUM - 1 then
-                     is_serve_A_arr(i) <= not earliest_fifo_index_A(i+1)(0);
-                   end if; 
+                   if not v_vc_updated then
+                     vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_A(i);
+                     lvl_deq_fifo_index <= earliest_fifo_index_A(i);
+                     v_vc_updated := true;
+                     if i > 0 and i < g_LEVEL_NUM - 1 then
+                       is_serve_A_arr(i-1) <= not earliest_fifo_index_A(i)(0);
+                     end if; 
+                   end if;
                  elsif all_fifos_empty_B(i) = '0' then
                    get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
                    get_fifo_cnts_cmd_B(i)   <= '1';
                    -- update VC slice corresponding to level
-                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
-                   if i < g_LEVEL_NUM - 1 then
-                     is_serve_A_arr(i) <= not earliest_fifo_index_B(i+1)(0);
-                   end if; 
+                   if not v_vc_updated then
+                     vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
+                     lvl_deq_fifo_index <= earliest_fifo_index_B(i);
+                     if i > 0 and i < g_LEVEL_NUM - 1 then
+                       is_serve_A_arr(i-1) <= not earliest_fifo_index_B(i)(0);
+                     end if; 
+                   end if;
                  end if;
               else
                  if all_fifos_empty_B(i) = '0' then
                    get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
                    get_fifo_cnts_cmd_B(i)   <= '1';
                    -- update VC slice corresponding to level
-                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
-                   if i < g_LEVEL_NUM - 1 then
-                     is_serve_A_arr(i) <= not earliest_fifo_index_B(i+1)(0);
-                   end if; 
+                   if not v_vc_updated then
+                     vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
+                     lvl_deq_fifo_index <= earliest_fifo_index_B(i);
+                     if i > 0 and i < g_LEVEL_NUM - 1 then
+                       is_serve_A_arr(i-1) <= not earliest_fifo_index_B(i)(0);
+                     end if;
+                   end if;
                  elsif all_fifos_empty_A(i) = '0' then
                    get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
                    get_fifo_cnts_cmd_B(i)   <= '1';
                    -- update VC slice corresponding to level
-                   vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
-                   if i < g_LEVEL_NUM - 1 then
-                     is_serve_A_arr(i) <= not earliest_fifo_index_A(i+1)(0);
-                   end if; 
+                   if not v_vc_updated then
+                     vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
+                     lvl_deq_fifo_index <= earliest_fifo_index_A(i);
+                     if i > 0 and i < g_LEVEL_NUM - 1 then
+                       is_serve_A_arr(i-1) <= not earliest_fifo_index_A(i)(0);
+                     end if;
+                   end if;
                  end if;
               end if;
             end if;
           end loop;
-          if and_reduce(all_fifos_empty_A) = '0' or and_reduce(all_fifos_empty_B) =  '0' then
-            deq_state <= WAIT_FIFO_CNTS;
-          else
-            -- !!! output deq_empty?
-            deq_state <= IDLE;
+          if find_earliest_non_empty_fifo_rsp_A(0) = '1' then
+            if and_reduce(all_fifos_empty_A) = '0' or and_reduce(all_fifos_empty_B) = '0' then
+              deq_state <= WAIT_FIFO_CNTS;
+            else
+              -- !!! output deq_empty?
+              l_deq_cmd <= '0';
+              deq_state <= IDLE;
+            end if;
           end if;
           
         when WAIT_FIFO_CNTS =>
           for i in 0 to g_LEVEL_NUM-1 loop
             if get_fifo_cnts_rsp_A(i) = '1' then
-              bytes_to_serve(i) <= fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*(g_FIFO_NUM));
+              bytes_to_serve(i) <= resize(fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_FIFO_NUM), g_BYTE_CNT_WIDTH);
               deq_state <= SERVE_BYTES;
             end if;
-            if get_fifo_cnts_rsp_B(i) = '1' then
-              bytes_to_serve(i) <= fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*(g_FIFO_NUM));
-              deq_state <= SERVE_BYTES;
+            if i < g_LEVEL_NUM-1 then
+              if get_fifo_cnts_rsp_B(i) = '1' then
+                bytes_to_serve(i) <= resize(fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_FIFO_NUM), g_BYTE_CNT_WIDTH);
+                deq_state <= SERVE_BYTES;
+              end if;
             end if;
           end loop;
           
@@ -479,7 +507,6 @@ begin
                 else
                   lvl_deq_cmd_B(i) <= '1';
                 end if;
-                lvl_deq_fifo_index <= to_unsigned(i, lvl_deq_fifo_index'length);
                 deq_state <= WAIT_DEQ_VLD;
                 v_not_served(i) := '0';
                 deqd_level <= to_unsigned(i, g_LEVEL_NUM);
@@ -489,6 +516,7 @@ begin
               deq_state <= IDLE;
             end if;
           end if;
+          l_deq_cmd <= '0';
           
         when WAIT_DEQ_VLD =>
           if lvl_deq_desc_valid_A(to_integer(deqd_level)) = '1' then
@@ -508,24 +536,26 @@ begin
             -- update pkt_cnt of gearbox scheduler
             gb_deq_pkt_cnt <= gb_deq_pkt_cnt + 1;
           end if;
-          v_more_bytes_to_serve := false;
-          if (bytes_served(to_integer(deqd_level)) + v_deqd_bytes < bytes_to_serve(to_integer(deqd_level))) then
-              deq_state <= SERVE_BYTES;
-              v_more_bytes_to_serve := true;
-          else
-            for i in 0 to g_LEVEL_NUM-1 loop
-              if i /= to_integer(deqd_level) then
-                if bytes_served(i) < bytes_to_serve(i) then
-                  deq_state <= SERVE_BYTES;
-                  v_more_bytes_to_serve := true;
+          if lvl_deq_desc_valid_A(to_integer(deqd_level)) = '1' or lvl_deq_desc_valid_B(to_integer(deqd_level)) = '1' then
+            v_more_bytes_to_serve := false;
+            if (bytes_served(to_integer(deqd_level)) + v_deqd_bytes < bytes_to_serve(to_integer(deqd_level))) then
+                deq_state <= SERVE_BYTES;
+                v_more_bytes_to_serve := true;
+            else
+              for i in 0 to g_LEVEL_NUM-1 loop
+                if i /= to_integer(deqd_level) then
+                  if bytes_served(i) < bytes_to_serve(i) then
+                    deq_state <= SERVE_BYTES;
+                    v_more_bytes_to_serve := true;
+                  end if;
                 end if;
-              end if;
-            end loop;
+              end loop;
+            end if;
+            if not v_more_bytes_to_serve then
+              deq_state <= IDLE;
+            end if;
           end if;
-          if not v_more_bytes_to_serve then
-            deq_state <= IDLE;
-          end if;
-      end case;
+        end case;
     end if;
 
   
