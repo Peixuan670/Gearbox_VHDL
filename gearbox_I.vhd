@@ -10,17 +10,17 @@ use work.gb_package.all;
 
 entity gearbox_I is
   generic (
-    g_FLOW_NUM        : integer;     -- number of flow
-    g_L2_FLOW_NUM     : integer;     -- log2 of number of flows
-    g_LEVEL_NUM       : integer;     -- number of levels
-    g_L2_LEVEL_NUM    : integer;     -- log2 of number of levels
-    g_FIFO_NUM        : integer;     -- number of FIFOs
-    g_L2_FIFO_NUM     : integer;     -- log2 of number of FIFOs
-    g_FIFO_SIZE       : integer;     -- size (depth) of each FIFO
-    g_DESC_BIT_WIDTH  : integer;     -- Descriptor width
-    g_VC_BIT_WIDTH    : integer;     -- number of bits in VC
-    g_PKT_CNT_WIDTH   : integer;     -- packet count width
-    g_BYTE_CNT_WIDTH  : integer      -- byte count width
+    g_FLOW_NUM        : integer := 4;     -- number of flow
+    g_L2_FLOW_NUM     : integer := 2;     -- log2 of number of flows
+    g_LEVEL_NUM       : integer := 4;     -- number of levels
+    g_L2_LEVEL_NUM    : integer := 2;     -- log2 of number of levels
+    g_FIFO_NUM        : integer := 16;    -- number of FIFOs
+    g_L2_FIFO_NUM     : integer := 4;     -- log2 of number of FIFOs
+    g_FIFO_SIZE       : integer := 256;   -- size (depth) of each FIFO
+    g_DESC_BIT_WIDTH  : integer := 49;    -- Descriptor width
+    g_VC_BIT_WIDTH    : integer := 20;    -- number of bits in VC
+    g_PKT_CNT_WIDTH   : integer := 9;     -- packet count width
+    g_BYTE_CNT_WIDTH  : integer := 20     -- byte count width
 
   );
   port (
@@ -434,42 +434,48 @@ begin
                        is_serve_A_arr(i-1) <= not earliest_fifo_index_A(i)(0);
                      end if; 
                    end if;
-                 elsif all_fifos_empty_B(i) = '0' then
-                   get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
-                   get_fifo_cnts_cmd_B(i)   <= '1';
-                   -- update VC slice corresponding to level
-                   if not v_vc_updated then
-                     vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
-                     lvl_deq_fifo_index <= earliest_fifo_index_B(i);
-                     if i > 0 and i < g_LEVEL_NUM - 1 then
-                       is_serve_A_arr(i-1) <= not earliest_fifo_index_B(i)(0);
+                 else
+                   if i < g_LEVEL_NUM-1 then
+                     if all_fifos_empty_B(i) = '0' then
+                       get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
+                       get_fifo_cnts_cmd_B(i)   <= '1';
+                       -- update VC slice corresponding to level
+                       if not v_vc_updated then
+                         vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
+                         lvl_deq_fifo_index <= earliest_fifo_index_B(i);
+                         if i > 0 then
+                           is_serve_A_arr(i-1) <= not earliest_fifo_index_B(i)(0);
+                         end if;
+                       end if;
                      end if; 
                    end if;
                  end if;
               else
-                 if all_fifos_empty_B(i) = '0' then
-                   get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
-                   get_fifo_cnts_cmd_B(i)   <= '1';
-                   -- update VC slice corresponding to level
-                   if not v_vc_updated then
-                     vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_B(i);
-                     lvl_deq_fifo_index <= earliest_fifo_index_B(i);
-                     if i > 0 and i < g_LEVEL_NUM - 1 then
+                if i < g_LEVEL_NUM-1 then
+                  if all_fifos_empty_B(i) = '0' then
+                    get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
+                    get_fifo_cnts_cmd_B(i)   <= '1';
+                    -- update VC slice corresponding to level
+                    if not v_vc_updated then
+                      vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
+                      lvl_deq_fifo_index <= earliest_fifo_index_B(i);
+                      if i > 0 then
                        is_serve_A_arr(i-1) <= not earliest_fifo_index_B(i)(0);
-                     end if;
-                   end if;
-                 elsif all_fifos_empty_A(i) = '0' then
+                      end if;
+                    end if;
+                  elsif all_fifos_empty_A(i) = '0' then
                    get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
                    get_fifo_cnts_cmd_B(i)   <= '1';
                    -- update VC slice corresponding to level
                    if not v_vc_updated then
-                     vc((i+1)*g_FIFO_NUM-1 downto i*g_FIFO_NUM) <= earliest_fifo_index_A(i);
+                     vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_A(i);
                      lvl_deq_fifo_index <= earliest_fifo_index_A(i);
-                     if i > 0 and i < g_LEVEL_NUM - 1 then
+                     if i > 0 then
                        is_serve_A_arr(i-1) <= not earliest_fifo_index_A(i)(0);
                      end if;
                    end if;
                  end if;
+                end if;
               end if;
             end if;
           end loop;
@@ -505,7 +511,9 @@ begin
                 if is_serve_A_arr(i) = '1' then
                   lvl_deq_cmd_A(i) <= '1';
                 else
-                  lvl_deq_cmd_B(i) <= '1';
+                  if i < g_LEVEL_NUM-1 then
+                    lvl_deq_cmd_B(i) <= '1';
+                  end if;
                 end if;
                 deq_state <= WAIT_DEQ_VLD;
                 v_not_served(i) := '0';
