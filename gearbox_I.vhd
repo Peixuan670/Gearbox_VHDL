@@ -16,7 +16,7 @@ entity gearbox_I is
     g_L2_LEVEL_NUM    : integer := 2;     -- log2 of number of levels
     g_FIFO_NUM        : integer := 16;    -- number of FIFOs
     g_L2_FIFO_NUM     : integer := 4;     -- log2 of number of FIFOs
-    g_FIFO_SIZE       : integer := 256;   -- size (depth) of each FIFO
+    g_L2_FIFO_SIZE    : integer := 8;     -- log2 of size (depth) of each FIFO
     g_DESC_BIT_WIDTH  : integer := 49;    -- Descriptor width
     g_VC_BIT_WIDTH    : integer := 20;    -- number of bits in VC
     g_PKT_CNT_WIDTH   : integer := 9;     -- packet count width
@@ -48,7 +48,7 @@ component gearbox_level
   generic (
     g_FIFO_NUM        : integer;     -- number of FIFOs
     g_L2_FIFO_NUM     : integer;     -- log2 of number of FIFOs
-    g_FIFO_SIZE       : integer;     -- size (depth) of each FIFO
+    g_L2_FIFO_SIZE    : integer;     -- log2 of size (depth) of each FIFO
     g_DESC_BIT_WIDTH  : integer;     -- Descriptor width
     g_PKT_CNT_WIDTH   : integer;     -- packet count width
     g_BYTE_CNT_WIDTH  : integer      -- byte count width
@@ -71,6 +71,8 @@ component gearbox_level
     current_fifo_index               : in  unsigned(g_L2_FIFO_NUM-1 downto 0);
     find_earliest_non_empty_fifo_rsp : out std_logic;
     earliest_fifo_index              : out unsigned(g_L2_FIFO_NUM-1 downto 0);
+    earliest_fifo_byte_cnt           : out unsigned(g_BYTE_CNT_WIDTH-1 downto 0);
+    current_fifo_byte_cnt            : out unsigned(g_BYTE_CNT_WIDTH-1 downto 0);
     all_fifos_empty                  : out std_logic;
     -- fifo count i/f
     get_fifo_cnts_cmd                : in  std_logic;
@@ -102,9 +104,14 @@ signal lvl_enq_desc        : std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
 type   t_fifo_pkt_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_PKT_CNT_WIDTH-1 downto 0);
 signal fifo_pkt_cnt_A      : t_fifo_pkt_cnt_arr;
 signal fifo_pkt_cnt_B      : t_fifo_pkt_cnt_arr;
-type   t_byte_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_BYTE_CNT_WIDTH-1 downto 0);
-signal fifo_byte_cnt_A     : t_byte_cnt_arr;
-signal fifo_byte_cnt_B     : t_byte_cnt_arr;
+type   t_byte_cnt_arr_A is array(0 to g_LEVEL_NUM-1) of unsigned(g_BYTE_CNT_WIDTH-1 downto 0);
+type   t_byte_cnt_arr_B is array(0 to g_LEVEL_NUM-2) of unsigned(g_BYTE_CNT_WIDTH-1 downto 0);
+signal fifo_byte_cnt_A     : t_byte_cnt_arr_A;
+signal fifo_byte_cnt_B     : t_byte_cnt_arr_B;
+signal earliest_fifo_byte_cnt_A : t_byte_cnt_arr_A;
+signal earliest_fifo_byte_cnt_B : t_byte_cnt_arr_B;
+signal current_fifo_byte_cnt_A  : t_byte_cnt_arr_A;
+signal current_fifo_byte_cnt_B  : t_byte_cnt_arr_B;
 type   t_level_pkt_cnt_arr is array(0 to g_LEVEL_NUM-1) of unsigned(g_L2_FIFO_NUM+g_PKT_CNT_WIDTH-1 downto 0);
 signal level_pkt_cnt_A     : t_level_pkt_cnt_arr;
 signal level_pkt_cnt_B     : t_level_pkt_cnt_arr;
@@ -148,8 +155,8 @@ signal get_fifo_cnts_index_B             : t_get_fifo_cnts_index_B;
 signal get_fifo_cnts_rsp_A               : std_logic_vector(g_LEVEL_NUM-1 downto 0);
 signal get_fifo_cnts_rsp_B               : std_logic_vector(g_LEVEL_NUM-2 downto 0);
 signal l_deq_cmd                         : std_logic;
-signal bytes_to_serve                    : t_byte_cnt_arr;
-signal bytes_served                      : t_byte_cnt_arr;
+signal bytes_to_serve                    : t_byte_cnt_arr_A;
+signal bytes_served                      : t_byte_cnt_arr_A;
 signal deqd_level                        : unsigned(g_LEVEL_NUM-1 downto 0);
 signal gb_deq_pkt_cnt                    : unsigned(g_L2_LEVEL_NUM+g_L2_FIFO_NUM+g_BYTE_CNT_WIDTH-1 downto 0);
 
@@ -162,7 +169,7 @@ begin
     generic map(
       g_FIFO_NUM        => g_FIFO_NUM,       -- number of FIFOs
       g_L2_FIFO_NUM     => g_L2_FIFO_NUM,    -- log2 of number of FIFOs
-      g_FIFO_SIZE       => g_FIFO_SIZE,      -- size (depth) of each FIFO
+      g_L2_FIFO_SIZE    => g_L2_FIFO_SIZE,   -- log2 of size (depth) of each FIFO
       g_DESC_BIT_WIDTH  => g_DESC_BIT_WIDTH, -- Descriptor width
       g_PKT_CNT_WIDTH   => g_PKT_CNT_WIDTH,  -- packet count width
       g_BYTE_CNT_WIDTH  => g_BYTE_CNT_WIDTH  -- byte count width
@@ -185,6 +192,8 @@ begin
       current_fifo_index               => current_fifo_arr(i),
       find_earliest_non_empty_fifo_rsp => find_earliest_non_empty_fifo_rsp_A(i),
       earliest_fifo_index              => earliest_fifo_index_A(i),
+      earliest_fifo_byte_cnt           => earliest_fifo_byte_cnt_A(i),
+      current_fifo_byte_cnt            => current_fifo_byte_cnt_A(i),
       all_fifos_empty                  => all_fifos_empty_A(i),
       -- fifo count i/f
       get_fifo_cnts_cmd                => get_fifo_cnts_cmd_A(i),
@@ -205,7 +214,7 @@ begin
     generic map(
       g_FIFO_NUM        => g_FIFO_NUM,       -- number of FIFOs
       g_L2_FIFO_NUM     => g_L2_FIFO_NUM,    -- log2 of number of FIFOs
-      g_FIFO_SIZE       => g_FIFO_SIZE,      -- size (depth) of each FIFO
+      g_L2_FIFO_SIZE    => g_L2_FIFO_SIZE,   -- size (depth) of each FIFO
       g_DESC_BIT_WIDTH  => g_DESC_BIT_WIDTH, -- Descriptor width
       g_PKT_CNT_WIDTH   => g_PKT_CNT_WIDTH,  -- packet count width
       g_BYTE_CNT_WIDTH  => g_BYTE_CNT_WIDTH  -- byte count width
@@ -228,6 +237,8 @@ begin
       current_fifo_index               => current_fifo_arr(i),
       find_earliest_non_empty_fifo_rsp => find_earliest_non_empty_fifo_rsp_B(i),
       earliest_fifo_index              => earliest_fifo_index_B(i),
+      earliest_fifo_byte_cnt           => earliest_fifo_byte_cnt_B(i),
+      current_fifo_byte_cnt            => current_fifo_byte_cnt_B(i),
       all_fifos_empty                  => all_fifos_empty_B(i),
       -- fifo count i/f
       get_fifo_cnts_cmd                => get_fifo_cnts_cmd_B(i),
@@ -372,6 +383,7 @@ begin
   variable v_deqd_bytes: unsigned(PKT_LEN_BIT_WIDTH-1 downto 0) := (others => '0');
   variable v_more_bytes_to_serve: boolean := false;
   variable v_vc_updated: boolean := false;
+  variable v_curr_fifo_index: unsigned(g_L2_FIFO_NUM-1 downto 0);
   begin
     if rst = '1' then
       vc             <= (others => '0');
@@ -423,65 +435,90 @@ begin
             if find_earliest_non_empty_fifo_rsp_A(i) = '1' then
               if is_serve_A_arr(i) = '1' then 
                  if all_fifos_empty_A(i) = '0' then
-                   get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
-                   get_fifo_cnts_cmd_A(i)   <= '1';
-                   -- update VC slice corresponding to level
+                  -- update VC slice corresponding to level
                    if not v_vc_updated then
-                     vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_A(i);
+                     --get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
                      lvl_deq_fifo_index <= earliest_fifo_index_A(i);
+                     vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_A(i);
+                     bytes_to_serve(i) <= resize(earliest_fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
+                     --if not (fifo_byte_cnt_A(i)(i*g_L2_FIFO_NUM downto 0) = 0) then
+                     --  bytes_to_serve(i) <= bytes_to_serve(i) + 1;
+                     --end if;
                      v_vc_updated := true;
                      if i > 0 and i < g_LEVEL_NUM - 1 then
                        is_serve_A_arr(i-1) <= not earliest_fifo_index_A(i)(0);
-                     end if; 
+                     end if;
+                   else
+                     --get_fifo_cnts_index_A(i) <= vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM);
+                     bytes_to_serve(i) <= resize(current_fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
                    end if;
+                   --get_fifo_cnts_cmd_A(i)   <= '1';
                  else
                    if i < g_LEVEL_NUM-1 then
                      if all_fifos_empty_B(i) = '0' then
-                       get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
-                       get_fifo_cnts_cmd_B(i)   <= '1';
                        -- update VC slice corresponding to level
                        if not v_vc_updated then
-                         vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
+                         --get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
                          lvl_deq_fifo_index <= earliest_fifo_index_B(i);
+                         vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
+                         bytes_to_serve(i) <= resize(earliest_fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
+                         --if not (fifo_byte_cnt_A(i)(i*g_L2_FIFO_NUM downto 0) = 0) then
+                         --  bytes_to_serve(i) <= bytes_to_serve(i) + 1;
+                         --end if;
+                         v_vc_updated := true;
                          if i > 0 then
                            is_serve_A_arr(i-1) <= not earliest_fifo_index_B(i)(0);
                          end if;
+                       else
+                         --get_fifo_cnts_index_B(i) <= vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM);
+                         bytes_to_serve(i) <= resize(current_fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
                        end if;
+                       --get_fifo_cnts_cmd_B(i)   <= '1';
                      end if; 
                    end if;
                  end if;
               else
                 if i < g_LEVEL_NUM-1 then
                   if all_fifos_empty_B(i) = '0' then
-                    get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
-                    get_fifo_cnts_cmd_B(i)   <= '1';
                     -- update VC slice corresponding to level
                     if not v_vc_updated then
-                      vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
+                      --get_fifo_cnts_index_B(i) <= earliest_fifo_index_B(i);
                       lvl_deq_fifo_index <= earliest_fifo_index_B(i);
+                      vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_B(i);
+                      bytes_to_serve(i) <= resize(earliest_fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
+                      v_vc_updated := true;
                       if i > 0 then
                        is_serve_A_arr(i-1) <= not earliest_fifo_index_B(i)(0);
                       end if;
+                    else
+                       --get_fifo_cnts_index_A(i) <= vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM);                   
+                       bytes_to_serve(i) <= resize(current_fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
                     end if;
+                    --get_fifo_cnts_cmd_B(i)   <= '1';
                   elsif all_fifos_empty_A(i) = '0' then
-                   get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
-                   get_fifo_cnts_cmd_B(i)   <= '1';
-                   -- update VC slice corresponding to level
-                   if not v_vc_updated then
-                     vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_A(i);
-                     lvl_deq_fifo_index <= earliest_fifo_index_A(i);
-                     if i > 0 then
-                       is_serve_A_arr(i-1) <= not earliest_fifo_index_A(i)(0);
-                     end if;
-                   end if;
-                 end if;
+                    -- update VC slice corresponding to level
+                    if not v_vc_updated then
+                      --get_fifo_cnts_index_A(i) <= earliest_fifo_index_A(i);
+                      lvl_deq_fifo_index <= earliest_fifo_index_A(i);
+                      vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM) <= earliest_fifo_index_A(i);
+                      bytes_to_serve(i) <= resize(earliest_fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
+                      v_vc_updated := true;
+                      if i > 0 then
+                        is_serve_A_arr(i-1) <= not earliest_fifo_index_A(i)(0);
+                      end if;
+                    else
+                      --get_fifo_cnts_index_B(i) <= vc((i+1)*g_L2_FIFO_NUM-1 downto i*g_L2_FIFO_NUM);                   
+                      bytes_to_serve(i) <= resize(current_fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
+                    end if;
+                    --get_fifo_cnts_cmd_B(i)   <= '1';
+                  end if;
                 end if;
               end if;
             end if;
           end loop;
           if find_earliest_non_empty_fifo_rsp_A(0) = '1' then
             if and_reduce(all_fifos_empty_A) = '0' or and_reduce(all_fifos_empty_B) = '0' then
-              deq_state <= WAIT_FIFO_CNTS;
+              deq_state <= SERVE_BYTES;
             else
               -- !!! output deq_empty?
               l_deq_cmd <= '0';
@@ -489,19 +526,25 @@ begin
             end if;
           end if;
           
-        when WAIT_FIFO_CNTS =>
-          for i in 0 to g_LEVEL_NUM-1 loop
-            if get_fifo_cnts_rsp_A(i) = '1' then
-              bytes_to_serve(i) <= resize(fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_FIFO_NUM), g_BYTE_CNT_WIDTH);
-              deq_state <= SERVE_BYTES;
-            end if;
-            if i < g_LEVEL_NUM-1 then
-              if get_fifo_cnts_rsp_B(i) = '1' then
-                bytes_to_serve(i) <= resize(fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_FIFO_NUM), g_BYTE_CNT_WIDTH);
-                deq_state <= SERVE_BYTES;
-              end if;
-            end if;
-          end loop;
+--        when WAIT_FIFO_CNTS =>
+--          for i in 0 to g_LEVEL_NUM-1 loop
+--            if get_fifo_cnts_rsp_A(i) = '1' then
+--              bytes_to_serve(i) <= resize(fifo_byte_cnt_A(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
+--              --if not (fifo_byte_cnt_A(i)(i*g_L2_FIFO_NUM downto 0) = 0) then
+--              --  bytes_to_serve(i) <= bytes_to_serve(i) + 1;
+--              --end if;
+--              deq_state <= SERVE_BYTES;
+--            end if;
+--            if i < g_LEVEL_NUM-1 then
+--              if get_fifo_cnts_rsp_B(i) = '1' then
+--                bytes_to_serve(i) <= resize(fifo_byte_cnt_B(i)(g_BYTE_CNT_WIDTH - 1 downto i*g_L2_FIFO_NUM), g_BYTE_CNT_WIDTH);
+--                --if not (fifo_byte_cnt_B(i)(i*g_L2_FIFO_NUM downto 0) = 0) then
+--                --    bytes_to_serve(i) <= bytes_to_serve(i) + 1;
+--                --end if;
+--                deq_state <= SERVE_BYTES;
+--              end if;
+--            end if;
+--          end loop;
           
         when SERVE_BYTES =>
           v_not_served := (others => '1');
