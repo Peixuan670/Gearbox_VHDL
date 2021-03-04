@@ -165,11 +165,6 @@ signal bytes_to_serve                    : t_bytes_to_serve;
 signal deqd_level                        : unsigned(g_LEVEL_NUM-1 downto 0);
 signal gb_deq_pkt_cnt                    : unsigned(g_L2_LEVEL_NUM+g_L2_FIFO_NUM+g_BYTE_CNT_WIDTH-1 downto 0);
 
-signal dbg_fin_time_arr_0                : unsigned(g_VC_BIT_WIDTH-1 downto 0);
-signal dbg_fin_time_arr_1                : unsigned(g_VC_BIT_WIDTH-1 downto 0);
-signal dbg_fin_time_arr_2                : unsigned(g_VC_BIT_WIDTH-1 downto 0);
-signal dbg_fin_time_arr_3                : unsigned(g_VC_BIT_WIDTH-1 downto 0);
-
 begin
 
   -- <gearbox_levels arr> level_set_A[level_num]
@@ -398,10 +393,6 @@ begin
       end if;
     end if;
   end process p_enqueue;
-  dbg_fin_time_arr_0 <= fin_time_arr(0);
-  dbg_fin_time_arr_1 <= fin_time_arr(1);
-  dbg_fin_time_arr_2 <= fin_time_arr(2);
-  dbg_fin_time_arr_3 <= fin_time_arr(3);
    
   -- dequeue process
   p_dequeue: process(rst, clk)
@@ -428,7 +419,7 @@ begin
       gb_deq_pkt_cnt <= (others => '0');
       v_more_bytes_to_serve := false;
       v_vc_updated   := false;
-      deq_desc_valid <= '0';
+ --     deq_desc_valid <= '0';
       
     elsif clk'event and clk = '1' then
       find_earliest_non_empty_fifo_cmd_A <= (others => '0');
@@ -437,7 +428,7 @@ begin
       lvl_deq_cmd_B <= (others => '0');
       get_fifo_cnts_cmd_A <= (others => '0');
       get_fifo_cnts_cmd_B <= (others => '0');
-      deq_desc_valid <= '0';
+ --     deq_desc_valid <= '0';
 
       case deq_state is
         when IDLE =>
@@ -726,16 +717,16 @@ begin
             -- update served bytes of the dequed level
             v_deqd_bytes := unsigned(lvl_deq_desc_A(to_integer(deqd_level))(g_DESC_BIT_WIDTH-1 downto g_DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
             bytes_to_serve(to_integer(deqd_level)) <= bytes_to_serve(to_integer(deqd_level)) - resize(signed(v_deqd_bytes), g_BYTE_CNT_WIDTH);
-            deq_desc <= lvl_deq_desc_A(to_integer(deqd_level));
-            deq_desc_valid <= '1';
+ --           deq_desc <= lvl_deq_desc_A(to_integer(deqd_level));
+ --           deq_desc_valid <= '1';
             gb_deq_pkt_cnt <= gb_deq_pkt_cnt + 1;
           end if;
           if lvl_deq_desc_valid_B(to_integer(deqd_level)) = '1' then
             v_deqd_bytes := unsigned(lvl_deq_desc_B(to_integer(deqd_level))(g_DESC_BIT_WIDTH-1 downto g_DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
             bytes_to_serve(to_integer(deqd_level)) <= bytes_to_serve(to_integer(deqd_level)) - resize(signed(v_deqd_bytes), g_BYTE_CNT_WIDTH);
             -- output dequed pkt desc
-            deq_desc <= lvl_deq_desc_B(to_integer(deqd_level));
-            deq_desc_valid <= '1';
+ --           deq_desc <= lvl_deq_desc_B(to_integer(deqd_level));
+ --           deq_desc_valid <= '1';
             -- update pkt_cnt of gearbox scheduler
             gb_deq_pkt_cnt <= gb_deq_pkt_cnt + 1;
           end if;
@@ -759,16 +750,14 @@ begin
             end if;
           end if;
         end case;
-    end if;
-
-  
-  -- (4) now, deque_level is not -1, deque from deque_level
-    -- i) Find cur serving set A or set B: self.level_ping_pong_arr[deque_level_index]
-    -- ii) Find cur_fifo by vc: self.cur_fifo = math.floor(self.vc / self.granularity) % self.fifo_num
-    -- iii) Deque cur set(A or B) gearbox_level cur_fifo
-  
+    end if; 
   end process p_dequeue;
 
+  deq_desc <= lvl_deq_desc_A(to_integer(deqd_level)) when lvl_deq_desc_valid_A(to_integer(deqd_level)) = '1' else
+              lvl_deq_desc_B(to_integer(deqd_level)) when lvl_deq_desc_valid_B(to_integer(deqd_level)) = '1' else
+              (others => 'X');
+  deq_desc_valid <= lvl_deq_desc_valid_A(to_integer(deqd_level)) or lvl_deq_desc_valid_B(to_integer(deqd_level));
+  
   gb_pkt_cnt <= gb_enq_pkt_cnt - gb_deq_pkt_cnt;
   
   -- [Function] find_deque_level

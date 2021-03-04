@@ -64,9 +64,7 @@ architecture gearbox_level_arch of gearbox_level is
   signal rd_en             : std_logic_vector(g_FIFO_NUM-1 downto 0);
   signal wr_en             : std_logic_vector(g_FIFO_NUM-1 downto 0);
   signal din               : std_logic_vector(g_DESC_BIT_WIDTH-1 downto 0);
-  signal deq_cmd_d1        : std_logic;
   signal deq_fifo_index_d1 : unsigned(g_L2_FIFO_NUM-1 downto 0) := (others => '0');
-  signal deq_fifo_index_d2 : unsigned(g_L2_FIFO_NUM-1 downto 0) := (others => '0');
   type   t_pkt_cnt_array is array(0 to g_FIFO_NUM-1) of unsigned(g_PKT_CNT_WIDTH-1 downto 0);
   signal enq_fifo_pkt_cnt  : t_pkt_cnt_array;
   signal deq_fifo_pkt_cnt  : t_pkt_cnt_array;
@@ -277,26 +275,26 @@ begin
   p_dequeue: process(rst, clk)
   begin
     if rst = '1' then
-      rd_en <= (others => '0');    
+      rd_en <= (others => '0');
+      deq_desc_valid     <= '0';    
       deq_fifo_pkt_cnt   <= (others => (others => '0'));
       deq_fifo_byte_cnt  <= (others => (others => '0'));
       deq_level_pkt_cnt  <= (others => '0');
       deq_level_byte_cnt <= (others => '0');
     elsif clk'event and clk = '1' then
       rd_en <= (others => '0');
-      deq_cmd_d1 <= '0';
+      deq_desc_valid <= '0';
       
       if deq_cmd = '1' and empty(to_integer(deq_fifo_index)) /= '1' then
         rd_en(to_integer(deq_fifo_index)) <= '1';
         deq_fifo_index_d1 <= deq_fifo_index;
-        deq_cmd_d1 <= '1';
+        deq_desc <= dout(to_integer(deq_fifo_index));
+        deq_desc_valid <= data_valid(to_integer(deq_fifo_index));
       end if;
       
-      deq_fifo_index_d2 <= deq_fifo_index_d1;
-      
       if deq_desc_valid = '1' then
-        deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d2))  <= deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d2)) + 1;
-        deq_fifo_byte_cnt(to_integer(deq_fifo_index_d2)) <= deq_fifo_byte_cnt(to_integer(deq_fifo_index_d2)) + 
+        deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d1))  <= deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d1)) + 1;
+        deq_fifo_byte_cnt(to_integer(deq_fifo_index_d1)) <= deq_fifo_byte_cnt(to_integer(deq_fifo_index_d1)) + 
                                                           unsigned(deq_desc(DESC_BIT_WIDTH - 1 downto DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
         deq_level_pkt_cnt                                <= deq_level_pkt_cnt + 1;
         deq_level_byte_cnt                               <= deq_level_byte_cnt + 
@@ -304,9 +302,7 @@ begin
       end if;
     end if;
   end process p_dequeue;
-  deq_desc <= dout(to_integer(deq_fifo_index_d2));
-  deq_desc_valid <= data_valid(to_integer(deq_fifo_index_d2));
-
+ 
   -- counters process
   p_counters: process(rst, clk)
   begin
