@@ -97,7 +97,7 @@ begin
       PROG_FULL_THRESH    => 10,                   -- DECIMAL
       RD_DATA_COUNT_WIDTH => g_L2_FIFO_SIZE+1,     -- DECIMAL
       READ_DATA_WIDTH     => g_DESC_BIT_WIDTH,     -- DECIMAL
-      READ_MODE           => "std",                -- String
+      READ_MODE           => "fwft",               -- String
       SIM_ASSERT_CHK      => 0,                    -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
       USE_ADV_FEATURES    => "1404",               -- String
       WAKEUP_TIME         => 0,                    -- DECIMAL

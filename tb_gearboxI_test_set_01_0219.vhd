@@ -17,7 +17,7 @@ component gearbox_I
     g_L2_LEVEL_NUM    : integer;     -- log2 of number of levels
     g_FIFO_NUM        : integer;     -- number of FIFOs
     g_L2_FIFO_NUM     : integer;     -- log2 of number of FIFOs
-    g_FIFO_SIZE       : integer;     -- size (depth) of each FIFO
+    g_L2_FIFO_SIZE    : integer;     -- log2 of size (depth) of each FIFO
     g_DESC_BIT_WIDTH  : integer;     -- Descriptor width
     g_VC_BIT_WIDTH    : integer;     -- number of bits in VC
     g_PKT_CNT_WIDTH   : integer;     -- packet count width
@@ -49,15 +49,16 @@ constant  g_FIFO_NUM                       : integer := 16;
 constant  g_L2_FIFO_NUM                    : integer := 4;
 constant  g_LEVEL_NUM                      : integer := 4;
 constant  g_L2_LEVEL_NUM                   : integer := 2;
-constant  g_FIFO_SIZE                      : integer := 256;
+constant  g_L2_FIFO_SIZE                   : integer := 8;
 constant  g_DESC_BIT_WIDTH                 : integer := 11+20+2+16;
 constant  g_VC_BIT_WIDTH                   : integer := 20;
 constant  g_PKT_CNT_WIDTH                  : integer := 9;
 constant  g_BYTE_CNT_WIDTH                 : integer := 11+9;
 
-constant  MAX_SIM_TIME : time := 500 ns;
+constant  MAX_SIM_TIME : time := 800 ns;
 constant  CLK_PERIOD   : time := 4 ns;
 constant  LOGIC_DELAY  : time := 100 ps;
+--constant  MAX_DEQ_TIME : 6;
 
 signal    rst                              : std_logic := '0';
 signal    clk                              : std_logic := '0';
@@ -75,6 +76,8 @@ signal    drop_desc                        : std_logic_vector(DESC_BIT_WIDTH-1 d
     -- pkt count i/f
 signal    gb_pkt_cnt                       : unsigned(g_L2_LEVEL_NUM+g_L2_FIFO_NUM+g_BYTE_CNT_WIDTH-1 downto 0) := (others => '0');
 
+type t_fin_time_arr is array(0 to g_FLOW_NUM-1) of unsigned(g_VC_BIT_WIDTH-1 downto 0);
+
 begin
 
 i_gb: gearbox_I
@@ -85,7 +88,7 @@ i_gb: gearbox_I
     g_L2_LEVEL_NUM    => g_L2_LEVEL_NUM,   -- log2 of number of levels
     g_FIFO_NUM        => g_FIFO_NUM,       -- number of FIFOs
     g_L2_FIFO_NUM     => g_L2_FIFO_NUM,    -- log2 of number of FIFOs
-    g_FIFO_SIZE       => g_FIFO_SIZE,      -- size (depth) of each FIFO
+    g_L2_FIFO_SIZE    => g_L2_FIFO_SIZE,   -- log2 of size (depth) of each FIFO
     g_DESC_BIT_WIDTH  => g_DESC_BIT_WIDTH, -- Descriptor width
     g_VC_BIT_WIDTH    => g_VC_BIT_WIDTH,   -- number of bits in VC
     g_PKT_CNT_WIDTH   => g_PKT_CNT_WIDTH,  -- packet count width
@@ -124,7 +127,7 @@ alias gb_lvl_enq_cmd_A is << signal i_gb.lvl_enq_cmd_A : std_logic_vector(g_LEVE
 alias gb_lvl_enq_cmd_B is << signal i_gb.lvl_enq_cmd_B : std_logic_vector(g_LEVEL_NUM-2 downto 0) >> ;     -- enq level index set B
 alias gb_lvl_enq_fifo_index is << signal i_gb.lvl_enq_fifo_index : unsigned(g_L2_FIFO_NUM-1 downto 0) >> ; -- enq fifo index
 --alias gb_last_enq_level_arr is << signal i_gb.last_enq_level_arr: t_last_enq_level_arr >> ; --[TODO] how to init, need import type?  -- last enque level array
---alias gb_fin_time_arr is << signal i_gb.fin_time_arr : t_fin_time_arr; >> ; --[TODO] how to init, need import type?  -- last fin_time array
+alias gb_fin_time_arr_0 is << signal i_gb.dbg_fin_time_arr_0 : unsigned(g_VC_BIT_WIDTH-1 downto 0) >> ; --[TODO] how to init, need import type?  -- last fin_time array
 alias gb_fin_time is << signal i_gb.fin_time : unsigned(FIN_TIME_BIT_WIDTH-1 downto 0) >> ;    -- fin time of current pkt
 alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downto 0) >> ;    -- enq_level of current pkt
 --alias gb_v_enq_level is << variable i_gb.p_enqueue.v_enq_level : unsigned(g_L2_LEVEL_NUM-1 downto 0) >> ;    -- v_enq_level of current pkt (final enque level after comparison)
@@ -317,10 +320,17 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-
+    
+--    process(deq_desc_valid)
+--    variable i : integer range 0 to MAX_DEQ_TIME-1;
+--    begin
+--      while deq_desc_valid != '1' and i < MAX_DEQ_TIME loop
+--        wait until rising_edge(clk);
+--        i := i + 1;
+--      end loop;
+--    end process;
+--    assert deq_desc_valid - '1';
+   
     -- Deq 02-------------------------------------------------
     wait until rising_edge(clk);
 
@@ -329,9 +339,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
 
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
@@ -353,16 +360,13 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
 
     -- Deq 04-------------------------------------------------
     wait until rising_edge(clk);
 
-    deq_cmd                          <= '1' after LOGIC_DELAY;
+    --deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
-    deq_cmd                          <= '0' after LOGIC_DELAY;
+    --deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
 
     wait until rising_edge(clk);
@@ -371,10 +375,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-
 
     -- Enq 04-------------------------------------------------
 
@@ -402,13 +402,12 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);                
     enq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-    -- @ (after) clk 01:
+    wait until rising_edge(clk);
+    -- @ (after) clk 02:
     -- Check fin_time:
     -- Fin time = 19
     assert (to_integer(gb_fin_time) = 19) report "gb_fin_time = " & INTEGER'IMAGE(to_integer(gb_fin_time)) severity failure;                
 
-    wait until rising_edge(clk);
-    -- @ (after) clk 02:
     -- Check last fin time [ToDo]
     -- Check last enq level [ToDo]
     -- Check drop_cmd:
@@ -753,9 +752,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
 
     -- Deq 06-------------------------------------------------
     wait until rising_edge(clk);
@@ -765,9 +761,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
 
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
@@ -789,9 +782,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
 
     -- Deq 08-------------------------------------------------
     wait until rising_edge(clk);
@@ -801,9 +791,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
 
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
@@ -825,10 +812,22 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
+
+    -- Deq 10-------------------------------------------------
+    wait until rising_edge(clk);
+
+    deq_cmd                          <= '1' after LOGIC_DELAY;
+    wait until rising_edge(clk);                
+    deq_cmd                          <= '0' after LOGIC_DELAY;
+    wait until rising_edge(clk);
+
     wait until rising_edge(clk);
     wait until rising_edge(clk);
     wait until rising_edge(clk);
-    
+    wait until rising_edge(clk);
+    wait until rising_edge(clk);
+    wait until rising_edge(clk);
+   
     wait;
 end process p_main;
     
