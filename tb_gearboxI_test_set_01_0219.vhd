@@ -11,11 +11,8 @@ end gearboxI_tb;
 architecture tb of gearboxI_tb is
 component gearbox_I
   generic (
-    g_FLOW_NUM        : integer;     -- number of flow
-    g_L2_FLOW_NUM     : integer;     -- log2 of number of flows
-    g_LEVEL_NUM       : integer;     -- number of levels
+    g_L2_FLOW_NUM     : integer;     -- log2 of number of flows    g_LEVEL_NUM       : integer;     -- number of levels
     g_L2_LEVEL_NUM    : integer;     -- log2 of number of levels
-    g_FIFO_NUM        : integer;     -- number of FIFOs
     g_L2_FIFO_NUM     : integer;     -- log2 of number of FIFOs
     g_L2_FIFO_SIZE    : integer;     -- log2 of size (depth) of each FIFO
     g_DESC_BIT_WIDTH  : integer;     -- Descriptor width
@@ -29,6 +26,7 @@ component gearbox_I
     -- enq i/f
     enq_cmd                          : in  std_logic;
     enq_desc                         : in  std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
+    enq_done                         : out std_logic;
     -- deq i/f
     deq_cmd                          : in  std_logic;
     deq_desc                         : out std_logic_vector(DESC_BIT_WIDTH-1 downto 0);
@@ -42,24 +40,36 @@ component gearbox_I
   );
 end component;
 
-
-constant  g_FLOW_NUM                       : integer := 4;     -- number of flow
-constant  g_L2_FLOW_NUM                    : integer := 2;     -- log2 of number of flows
-constant  g_FIFO_NUM                       : integer := 16;
+constant  g_L2_FLOW_NUM                    : integer := 10;
 constant  g_L2_FIFO_NUM                    : integer := 4;
-constant  g_LEVEL_NUM                      : integer := 4;
 constant  g_L2_LEVEL_NUM                   : integer := 2;
+constant  g_LEVEL_NUM                      : integer := 2**g_L2_LEVEL_NUM;
 constant  g_L2_FIFO_SIZE                   : integer := 8;
-constant  g_DESC_BIT_WIDTH                 : integer := 11+20+2+16;
+constant  g_DESC_BIT_WIDTH                 : integer := DESC_BIT_WIDTH; -- from gb_package
 constant  g_VC_BIT_WIDTH                   : integer := 20;
 constant  g_PKT_CNT_WIDTH                  : integer := 9;
 constant  g_BYTE_CNT_WIDTH                 : integer := 11+9;
 
-constant  MAX_SIM_TIME : time := 800 ns;
-constant  CLK_PERIOD   : time := 4 ns;
-constant  LOGIC_DELAY  : time := 100 ps;
---constant  MAX_DEQ_TIME : 6;
+constant  MAX_SIM_TIME : time    := 500 ns;
+constant  CLK_PERIOD   : time    := 3 ns;
+constant  LOGIC_DELAY  : time    := 100 ps;
+constant  MAX_DEQ_TIME : integer := 10;
 
+procedure proc_wait_deq_vld (
+  signal clk: in std_logic;
+  signal deq_desc_valid: in std_logic;
+  constant MAX_DEQ_TIME: in integer range 0 to MAX_DEQ_TIME-1
+  ) is
+  variable i : integer := 0;
+  begin
+    i := 0;
+    while deq_desc_valid /= '1' and i < MAX_DEQ_TIME loop
+      wait until rising_edge(clk);
+      i := i + 1;
+    end loop;
+    assert (deq_desc_valid = '1') report "Dequeue time out" severity failure;
+  end procedure;
+   
 signal    rst                              : std_logic := '0';
 signal    clk                              : std_logic := '0';
     -- enq i/f
@@ -76,17 +86,12 @@ signal    drop_desc                        : std_logic_vector(DESC_BIT_WIDTH-1 d
     -- pkt count i/f
 signal    gb_pkt_cnt                       : unsigned(g_L2_LEVEL_NUM+g_L2_FIFO_NUM+g_BYTE_CNT_WIDTH-1 downto 0) := (others => '0');
 
-type t_fin_time_arr is array(0 to g_FLOW_NUM-1) of unsigned(g_VC_BIT_WIDTH-1 downto 0);
-
 begin
 
 i_gb: gearbox_I
   generic map(
-    g_FLOW_NUM        => g_FLOW_NUM,       -- number of flows
     g_L2_FLOW_NUM     => g_L2_FLOW_NUM,    -- log2 of number of flows
-    g_LEVEL_NUM       => g_LEVEL_NUM,      -- number of levels
     g_L2_LEVEL_NUM    => g_L2_LEVEL_NUM,   -- log2 of number of levels
-    g_FIFO_NUM        => g_FIFO_NUM,       -- number of FIFOs
     g_L2_FIFO_NUM     => g_L2_FIFO_NUM,    -- log2 of number of FIFOs
     g_L2_FIFO_SIZE    => g_L2_FIFO_SIZE,   -- log2 of size (depth) of each FIFO
     g_DESC_BIT_WIDTH  => g_DESC_BIT_WIDTH, -- Descriptor width
@@ -100,7 +105,7 @@ i_gb: gearbox_I
     -- enq i/f
     enq_cmd                          => enq_cmd,
     enq_desc                         => enq_desc,
-    --enq_done                         => enq_done,
+    enq_done                         => enq_done,
     -- deq i/f
     deq_cmd                          => deq_cmd,
     deq_desc                         => deq_desc,
@@ -126,12 +131,8 @@ p_main: process
 alias gb_lvl_enq_cmd_A is << signal i_gb.lvl_enq_cmd_A : std_logic_vector(g_LEVEL_NUM-1 downto 0) >> ;     -- enq level index set A
 alias gb_lvl_enq_cmd_B is << signal i_gb.lvl_enq_cmd_B : std_logic_vector(g_LEVEL_NUM-2 downto 0) >> ;     -- enq level index set B
 alias gb_lvl_enq_fifo_index is << signal i_gb.lvl_enq_fifo_index : unsigned(g_L2_FIFO_NUM-1 downto 0) >> ; -- enq fifo index
---alias gb_last_enq_level_arr is << signal i_gb.last_enq_level_arr: t_last_enq_level_arr >> ; --[TODO] how to init, need import type?  -- last enque level array
-alias gb_fin_time_arr_0 is << signal i_gb.dbg_fin_time_arr_0 : unsigned(g_VC_BIT_WIDTH-1 downto 0) >> ; --[TODO] how to init, need import type?  -- last fin_time array
 alias gb_fin_time is << signal i_gb.fin_time : unsigned(FIN_TIME_BIT_WIDTH-1 downto 0) >> ;    -- fin time of current pkt
 alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downto 0) >> ;    -- enq_level of current pkt
---alias gb_v_enq_level is << variable i_gb.p_enqueue.v_enq_level : unsigned(g_L2_LEVEL_NUM-1 downto 0) >> ;    -- v_enq_level of current pkt (final enque level after comparison)
-
 
   begin
 
@@ -170,10 +171,17 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Check enque level
     -- Enque level = 0
     assert (to_integer(gb_enq_level) = 0) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
-    
-    
+
+    -- Enq 02-------------------------------------------------
+    -- 2. enqueue a subsequent desc into Gearbox with flow_id = 0
+    enq_cmd                          <= '1' after LOGIC_DELAY;
+    enq_desc                         <= std_logic_vector(to_unsigned(64*12, PKT_LEN_BIT_WIDTH))   &
+                                        std_logic_vector(to_unsigned(12, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 12
+                                        std_logic_vector(to_unsigned(0, g_L2_FLOW_NUM))        &  -- TODO: flow id = 0
+                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
+      
     wait until rising_edge(clk);
-    -- @ (after) clk 03:
+    -- @ (after) clk 03: check Enq 1
     -- Check final enque level (v_enq_level)
     -- Final enque level = 0
     --assert (to_integer(gb_v_enq_level) = 0) report "gb_v_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_v_enq_level))) severity failure;
@@ -184,19 +192,9 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Check enque fifo index
     -- Enque fifo 5
     assert (to_integer(gb_lvl_enq_fifo_index) = 5) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
-
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait until rising_edge(clk);
-
     
-    -- Enq 02-------------------------------------------------
-    -- 2. enqueue a subsequent desc into Gearbox with flow_id = 0
-    enq_cmd                          <= '1' after LOGIC_DELAY;
-    enq_desc                         <= std_logic_vector(to_unsigned(64*12, PKT_LEN_BIT_WIDTH))   &
-                                        std_logic_vector(to_unsigned(12, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 12
-                                        std_logic_vector(to_unsigned(0, g_L2_FLOW_NUM))        &  -- TODO: flow id = 0
-                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
-    wait until rising_edge(clk);                
+    --  falling edge of Enq 2;                
     enq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
     -- @ (after) clk 01:
@@ -216,8 +214,17 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Enque level = 1
     assert (to_integer(gb_enq_level) = 1) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
                     
+    -- Enq 03-------------------------------------------------
+    -- 3. enqueue a desc into Gearbox with flow_id = 1
+    enq_cmd                          <= '1' after LOGIC_DELAY;
+    enq_desc                         <= std_logic_vector(to_unsigned(64*6, PKT_LEN_BIT_WIDTH))   &
+                                        std_logic_vector(to_unsigned(6, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 6
+                                        std_logic_vector(to_unsigned(1, g_L2_FLOW_NUM))        &  -- TODO: flow id = 1
+                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
+
     wait until rising_edge(clk);
-    -- @ (after) clk 03:
+
+    -- @ (after) clk 03: check Enq 2
     -- Check final enque level (v_enq_level)
     -- Final enque level = 1
     --assert (to_integer(gb_v_enq_level) = 1) report "gb_v_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_v_enq_level))) severity failure;
@@ -229,19 +236,9 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Enque fifo 1
     assert (to_integer(gb_lvl_enq_fifo_index) = 1) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
-    --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
+    --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;    
 
-    wait until rising_edge(clk);
-    
-
-    -- Enq 03-------------------------------------------------
-    -- 3. enqueue a desc into Gearbox with flow_id = 1
-    enq_cmd                          <= '1' after LOGIC_DELAY;
-    enq_desc                         <= std_logic_vector(to_unsigned(64*6, PKT_LEN_BIT_WIDTH))   &
-                                        std_logic_vector(to_unsigned(6, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 6
-                                        std_logic_vector(to_unsigned(1, g_L2_FLOW_NUM))        &  -- TODO: flow id = 1
-                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
-    wait until rising_edge(clk);                
+ --   wait until rising_edge(clk);                
     enq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
 
@@ -261,10 +258,17 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Check enque level
     -- Enque level = 0
     assert (to_integer(gb_enq_level) = 0) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
-                    
+ 
+     -- Enq 04-------------------------------------------------
+    -- 4. enqueue a desc into Gearbox with flow_id = 2
+    enq_cmd                          <= '1' after LOGIC_DELAY;
+    enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
+                                        std_logic_vector(to_unsigned(99999, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 9999
+                                        std_logic_vector(to_unsigned(2, g_L2_FLOW_NUM))        &  -- TODO: flow id = 2
+                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
+                   
     wait until rising_edge(clk);
-
-    -- @ (after) clk 03:
+    -- @ (after) clk 03: Check Enq 3
     -- Check final enque level (v_enq_level)
     -- Final enque level = 1
     --assert (to_integer(gb_v_enq_level) = 1) report "gb_v_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_v_enq_level))) severity failure;
@@ -278,16 +282,7 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
 
-    wait until rising_edge(clk);
-
-    -- Enq 04-------------------------------------------------
-    -- 4. enqueue a desc into Gearbox with flow_id = 2
-    enq_cmd                          <= '1' after LOGIC_DELAY;
-    enq_desc                         <= std_logic_vector(to_unsigned(64, PKT_LEN_BIT_WIDTH))   &
-                                        std_logic_vector(to_unsigned(99999, FIN_TIME_BIT_WIDTH))  &  -- TODO: pkt transmission time = 9999
-                                        std_logic_vector(to_unsigned(2, g_L2_FLOW_NUM))        &  -- TODO: flow id = 2
-                                        std_logic_vector(to_unsigned(1, PKT_ID_BIT_WIDTH)) after LOGIC_DELAY;
-    wait until rising_edge(clk);                
+--    wait until rising_edge(clk);                
     enq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
 
@@ -304,8 +299,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Drop cmd = false (0)
     assert (drop_cmd = '1') report "drop_cmd = " & STD_LOGIC'IMAGE(drop_cmd) severity failure;
 
-
-
     -- Deq 01-------------------------------------------------
     wait until rising_edge(clk);
 
@@ -313,68 +306,23 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    
---    process(deq_desc_valid)
---    variable i : integer range 0 to MAX_DEQ_TIME-1;
---    begin
---      while deq_desc_valid != '1' and i < MAX_DEQ_TIME loop
---        wait until rising_edge(clk);
---        i := i + 1;
---      end loop;
---    end process;
---    assert deq_desc_valid - '1';
-   
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
+    --wait until rising_edge(clk);
+    --wait until rising_edge(clk);
     -- Deq 02-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-
+    --wait until rising_edge(clk);
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
+    --wait until rising_edge(clk);
     -- Deq 03-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-
-    -- Deq 04-------------------------------------------------
-    wait until rising_edge(clk);
-
-    --deq_cmd                          <= '1' after LOGIC_DELAY;
-    wait until rising_edge(clk);                
-    --deq_cmd                          <= '0' after LOGIC_DELAY;
-    wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
 
     -- Enq 04-------------------------------------------------
 
@@ -433,9 +381,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     assert (to_integer(gb_lvl_enq_fifo_index) = 1) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait until rising_edge(clk);
-
-    
 
     -- Enq 05-------------------------------------------------
 
@@ -480,7 +425,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Enque level = 0
     assert (to_integer(gb_enq_level) = 0) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
     
-    
     wait until rising_edge(clk);
     -- @ (after) clk 03:
     -- Check final enque level (v_enq_level)
@@ -495,7 +439,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     assert (to_integer(gb_lvl_enq_fifo_index) = 2) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait until rising_edge(clk);
 
     -- Enq 06-------------------------------------------------
 
@@ -540,7 +483,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Enque level = 0
     assert (to_integer(gb_enq_level) = 0) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
     
-    
     wait until rising_edge(clk);
     -- @ (after) clk 03:
     -- Check final enque level (v_enq_level)
@@ -554,9 +496,7 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Enque fifo 1
     assert (to_integer(gb_lvl_enq_fifo_index) = 1) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
-    --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait until rising_edge(clk);
-
+    --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure
 
     -- Enq 07-------------------------------------------------
 
@@ -601,7 +541,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     -- Enque level = 0
     assert (to_integer(gb_enq_level) = 0) report "gb_enq_level = " & INTEGER'IMAGE(to_integer(unsigned(gb_enq_level))) severity failure;
     
-    
     wait until rising_edge(clk);
     -- @ (after) clk 03:
     -- Check final enque level (v_enq_level)
@@ -616,7 +555,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     assert (to_integer(gb_lvl_enq_fifo_index) = 1) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait until rising_edge(clk);
 
     -- Enq 08-------------------------------------------------
 
@@ -676,7 +614,6 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     assert (to_integer(gb_lvl_enq_fifo_index) = 1) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait until rising_edge(clk);
 
     -- Enq 09-------------------------------------------------
 
@@ -736,97 +673,48 @@ alias gb_enq_level is << signal i_gb.enq_level : unsigned(g_L2_LEVEL_NUM-1 downt
     assert (to_integer(gb_lvl_enq_fifo_index) = 14) report "gb_lvl_enq_fifo_index = " & INTEGER'IMAGE(to_integer(gb_lvl_enq_fifo_index)) severity failure;
 
     --assert (enq_done = '1') report "enq_done = " & STD_LOGIC'IMAGE(enq_done) severity failure;
-    wait until rising_edge(clk);
-
+ 
     -- Deq 05-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
+    
     -- Deq 06-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
 
     -- Deq 07-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
 
     -- Deq 08-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
 
     -- Deq 09-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
 
     -- Deq 10-------------------------------------------------
-    wait until rising_edge(clk);
-
     deq_cmd                          <= '1' after LOGIC_DELAY;
     wait until rising_edge(clk);                
     deq_cmd                          <= '0' after LOGIC_DELAY;
     wait until rising_edge(clk);
-
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
+    proc_wait_deq_vld(clk, deq_desc_valid, MAX_DEQ_TIME);
    
     wait;
 end process p_main;

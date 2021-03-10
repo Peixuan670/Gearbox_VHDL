@@ -295,10 +295,10 @@ begin
       if deq_desc_valid = '1' then
         deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d1))  <= deq_fifo_pkt_cnt(to_integer(deq_fifo_index_d1)) + 1;
         deq_fifo_byte_cnt(to_integer(deq_fifo_index_d1)) <= deq_fifo_byte_cnt(to_integer(deq_fifo_index_d1)) + 
-                                                          unsigned(deq_desc(DESC_BIT_WIDTH - 1 downto DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
+                                                          unsigned(deq_desc(g_DESC_BIT_WIDTH - 1 downto g_DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
         deq_level_pkt_cnt                                <= deq_level_pkt_cnt + 1;
         deq_level_byte_cnt                               <= deq_level_byte_cnt + 
-                                                          unsigned(deq_desc(DESC_BIT_WIDTH - 1 downto DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
+                                                          unsigned(deq_desc(g_DESC_BIT_WIDTH - 1 downto g_DESC_BIT_WIDTH-PKT_LEN_BIT_WIDTH));
       end if;
     end if;
   end process p_dequeue;
